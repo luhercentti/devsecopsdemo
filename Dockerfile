@@ -6,8 +6,10 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY app/ /app/
+COPY app/requirements.txt /app/requirements.txt
 
-RUN pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
 
 # Exposing sensitive environment variables (intentional security issue)
 ENV DB_PASSWORD="super_secret_db_password" \

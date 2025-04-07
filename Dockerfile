@@ -8,7 +8,7 @@ WORKDIR /app
 COPY app/ /app/
 COPY app/requirements.txt /app/requirements.txt
 
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 
 # Exposing sensitive environment variables (intentional security issue)

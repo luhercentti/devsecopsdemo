@@ -38,7 +38,7 @@ jobs:
           path: bandit-results.json
         if: always()
 
-  # SEMGREP STEP (as specified)
+  # SEMGREP STEP
   semgrep-sast:
     name: Semgrep-SAST
     runs-on: ubuntu-20.04
@@ -111,8 +111,8 @@ jobs:
             trivy-results.sarif
         if: always()
 
-  # TEST PHASE
-  security-testing:
+  # TEST PHASE WITH UNIT TESTS
+  unit-testing:
     runs-on: ubuntu-latest
     needs: secure-build
     steps:
@@ -130,17 +130,59 @@ jobs:
           pytest app/test_app.py --cov=app --cov-report=xml:coverage.xml || echo "No tests found"
         continue-on-error: true
       
-      - name: Upload test security results
+      - name: Upload test coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: test-security-results
+          name: test-coverage-results
           path: coverage.xml
+        if: always()
+
+  # DAST TESTING WITH OWASP ZAP
+  dast-testing:
+    runs-on: ubuntu-latest
+    needs: secure-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy sample app for testing
+        run: |
+          pip install flask requests
+          # Start the Flask app in the background
+          nohup python -c "
+          from flask import Flask
+          app = Flask(__name__)
+          @app.route('/')
+          def home(): return 'Hello, DevSecOps!'
+          @app.route('/api/data')
+          def data(): return {'data': 'test'}
+          if __name__ == '__main__': app.run(host='0.0.0.0', port=8080)
+          " &
+          # Wait for app to start
+          sleep 5
+          # Verify it's running
+          curl http://localhost:8080/ || echo "App not started correctly"
+      
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:8080'
+          fail_action: false
+          allow_issue_writing: false
+      
+      - name: Upload ZAP Scan Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-scan-results
+          path: |
+            zap-report.html
+            zap-report.md
         if: always()
 
   # DEPLOY PHASE
   secure-deploy:
     runs-on: ubuntu-latest
-    needs: security-testing
+    needs: [unit-testing, dast-testing]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -177,7 +219,7 @@ jobs:
   # GENERATE REPORT
   security-report:
     runs-on: ubuntu-latest
-    needs: [secure-code, semgrep-sast, secure-build, security-testing, secure-deploy]
+    needs: [secure-code, semgrep-sast, secure-build, unit-testing, dast-testing, secure-deploy]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -216,6 +258,16 @@ jobs:
             echo "Trivy found vulnerabilities in container image" >> combined-report.md
           else
             echo "No Trivy results found" >> combined-report.md
+          fi
+          
+          echo "## DAST Results" >> combined-report.md
+          if [ -f "zap-scan-results/zap-report.md" ]; then
+            echo "OWASP ZAP scan completed. See detailed results in the artifacts." >> combined-report.md
+            # Include summary from ZAP report if possible
+            echo "Summary from ZAP:" >> combined-report.md
+            grep -A 5 "Summary of Alerts" zap-scan-results/zap-report.md >> combined-report.md || echo "No ZAP summary found" >> combined-report.md
+          else
+            echo "No OWASP ZAP results found" >> combined-report.md
           fi
           
           echo "## IaC Scanning Results" >> combined-report.md

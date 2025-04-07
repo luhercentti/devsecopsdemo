@@ -1,0 +1,6 @@
+# app/requirements.txt
+
+flask==2.0.1
+requests==2.26.0
+pytest==6.2.5
+pytest-cov==2.12.1

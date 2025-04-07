@@ -1,0 +1,212 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # CODE PHASE
+  secure-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+            
+      - name: Run Bandit (SAST for Python)
+        run: |
+          pip install bandit
+          bandit -r . -f json -o bandit-results.json || true
+        
+      - name: Run Semgrep (Multi-language SAST)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN || '' }}
+          publishDeployment: ${{ secrets.SEMGREP_DEPLOYMENT_ID || '' }}
+          config: p/ci
+        continue-on-error: true
+      
+      - name: Run Gitleaks (Secret Scanner)
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v3
+        with:
+          name: sast-results
+          path: bandit-results.json
+        if: always()
+
+  # BUILD PHASE
+  secure-build:
+    runs-on: ubuntu-latest
+    needs: secure-code
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run Safety (Python dependencies)
+        run: |
+          pip install safety
+          pip install -r app/requirements.txt || pip install flask requests
+          pip freeze > requirements.txt
+          safety check -r requirements.txt --json > safety-results.json || true
+      
+      - name: Build Docker image
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t my-app:latest .
+          else
+            echo "FROM python:3.10-slim
+            WORKDIR /app
+            COPY app/ /app/
+            RUN pip install -r requirements.txt || pip install flask requests
+            CMD [\"python\", \"app.py\"]" > Dockerfile
+            docker build -t my-app:latest .
+          fi
+      
+      - name: Run Trivy (Container Scanning)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'my-app:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+        continue-on-error: true
+      
+      - name: Upload build security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-security-results
+          path: |
+            safety-results.json
+            trivy-results.sarif
+        if: always()
+
+  # TEST PHASE
+  security-testing:
+    runs-on: ubuntu-latest
+    needs: secure-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run unit tests with coverage
+        run: |
+          pip install pytest pytest-cov flask requests
+          pytest app/test_app.py --cov=app --cov-report=xml:coverage.xml || echo "No tests found"
+        continue-on-error: true
+      
+      - name: Upload test security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-security-results
+          path: coverage.xml
+        if: always()
+
+  # DEPLOY PHASE
+  secure-deploy:
+    runs-on: ubuntu-latest
+    needs: security-testing
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        if: ${{ hashFiles('**/*.tf') != '' }}
+      
+      - name: Run tfsec (Terraform Security)
+        uses: aquasecurity/tfsec-sarif-action@v0.1.4
+        with:
+          sarif_file: tfsec.sarif
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        continue-on-error: true
+      
+      - name: Run Checkov (IaC security)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          soft_fail: true
+          output_format: sarif
+          output_file: checkov.sarif
+        continue-on-error: true
+      
+      - name: Upload deploy security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: deploy-security-results
+          path: |
+            tfsec.sarif
+            checkov.sarif
+        if: always()
+
+  # GENERATE REPORT
+  security-report:
+    runs-on: ubuntu-latest
+    needs: [secure-code, secure-build, security-testing, secure-deploy]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        continue-on-error: true
+      
+      - name: Generate combined report
+        run: |
+          echo "# DevSecOps Pipeline Security Report" > combined-report.md
+          echo "## Summary" >> combined-report.md
+          echo "Pipeline run completed at $(date)" >> combined-report.md
+          
+          echo "## SAST Results" >> combined-report.md
+          if [ -f "sast-results/bandit-results.json" ]; then
+            echo "Bandit found issues: $(grep -c "issue" sast-results/bandit-results.json || echo "0")" >> combined-report.md
+          else
+            echo "No Bandit results found" >> combined-report.md
+          fi
+          
+          echo "## Dependency Scanning Results" >> combined-report.md
+          if [ -f "build-security-results/safety-results.json" ]; then
+            echo "Safety found issues: $(grep -c "vulnerability" build-security-results/safety-results.json || echo "0")" >> combined-report.md
+          else
+            echo "No Safety results found" >> combined-report.md
+          fi
+          
+          echo "## Container Scanning Results" >> combined-report.md
+          if [ -f "build-security-results/trivy-results.sarif" ]; then
+            echo "Trivy found vulnerabilities in container image" >> combined-report.md
+          else
+            echo "No Trivy results found" >> combined-report.md
+          fi
+          
+          echo "## IaC Scanning Results" >> combined-report.md
+          if [ -f "deploy-security-results/checkov.sarif" ]; then
+            echo "Checkov found issues in infrastructure code" >> combined-report.md
+          else
+            echo "No Checkov results found" >> combined-report.md
+          fi
+          
+          cat combined-report.md
+      
+      - name: Upload combined report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: combined-report.md

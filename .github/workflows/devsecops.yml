@@ -40,7 +40,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload SAST results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sast-results
           path: bandit-results.json
@@ -89,7 +89,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload build security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-security-results
           path: |
@@ -117,7 +117,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload test security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-security-results
           path: coverage.xml
@@ -152,7 +152,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload deploy security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deploy-security-results
           path: |
@@ -206,7 +206,7 @@ jobs:
           cat combined-report.md
       
       - name: Upload combined report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-report
           path: combined-report.md

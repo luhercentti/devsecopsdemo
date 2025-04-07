@@ -1,0 +1,259 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  # PLAN PHASE
+  security-planning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Run Threat Dragon for threat modeling
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+      - run: |
+          # Install OWASP Threat Dragon CLI (if you have models stored)
+          npm install -g @threatdragon/cli
+          # Validate threat models if you have them in your repo
+          # td validate ./threat-models/*.json
+
+      - name: Run Dependency Review (Supply Chain)
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: high
+
+  # CODE PHASE
+  secure-code:
+    runs-on: ubuntu-latest
+    needs: security-planning
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+            
+      - name: Run Bandit (SAST for Python)
+        run: |
+          pip install bandit
+          bandit -r . -f json -o bandit-results.json
+        continue-on-error: true
+      
+      - name: Run Semgrep (Multi-language SAST)
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/ci
+          output: semgrep-results.json
+        continue-on-error: true
+      
+      - name: Run TruffleHog (Secret Scanner)
+        uses: trufflesecurity/trufflehog-actions-scan@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+        continue-on-error: true
+      
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v3
+        with:
+          name: sast-results
+          path: |
+            bandit-results.json
+            semgrep-results.json
+
+  # BUILD PHASE
+  secure-build:
+    runs-on: ubuntu-latest
+    needs: secure-code
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up dependency scanning
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run Safety (Python dependencies)
+        run: |
+          pip install safety
+          pip freeze > requirements.txt
+          safety check -r requirements.txt --json > safety-results.json
+        continue-on-error: true
+      
+      - name: Build Docker image
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t my-app:latest .
+          else
+            echo "No Dockerfile found, skipping"
+          fi
+      
+      - name: Run Trivy (Container Scanning)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'my-app:latest'
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: 'HIGH,CRITICAL'
+        if: ${{ success() && hashFiles('Dockerfile') != '' }}
+        continue-on-error: true
+      
+      - name: Upload build security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-security-results
+          path: |
+            safety-results.json
+            trivy-results.json
+        if: always()
+
+  # TEST PHASE
+  security-testing:
+    runs-on: ubuntu-latest
+    needs: secure-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Run OWASP ZAP Baseline Scan (DAST)
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:8080'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+        if: ${{ hashFiles('docker-compose.yml') != '' }}
+        continue-on-error: true
+      
+      - name: Run unit tests with coverage
+        run: |
+          # Example for Python project
+          pip install pytest pytest-cov
+          pytest --cov=. --cov-report=xml:coverage.xml
+        continue-on-error: true
+      
+      - name: Run Nuclei for vulnerability scanning
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: http://localhost:8080
+          output: nuclei-results.json
+          format: json
+          templates: cves,vulnerabilities
+        continue-on-error: true
+      
+      - name: Upload test security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-security-results
+          path: |
+            coverage.xml
+            nuclei-results.json
+            zap-baseline-report.html
+        if: always()
+
+  # DEPLOY PHASE
+  secure-deploy:
+    runs-on: ubuntu-latest
+    needs: security-testing
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Run TFSec (IaC security)
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          soft_fail: true
+        if: ${{ hashFiles('**/*.tf') != '' }}
+      
+      - name: Run Checkov (IaC security)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          soft_fail: true
+        continue-on-error: true
+      
+      - name: Kubernetes manifest validation
+        run: |
+          if [ -d ./kubernetes ]; then
+            pip install kube-linter
+            kube-linter lint ./kubernetes --format json > kube-linter-results.json
+          else
+            echo "No Kubernetes manifests found, skipping"
+          fi
+        continue-on-error: true
+      
+      - name: Upload deploy security results
+        uses: actions/upload-artifact@v3
+        with:
+          name: deploy-security-results
+          path: kube-linter-results.json
+        if: ${{ hashFiles('**/kube-linter-results.json') != '' }}
+
+  # OPERATE PHASE
+  security-monitoring:
+    runs-on: ubuntu-latest
+    needs: secure-deploy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Install Falco (Runtime Security)
+        run: |
+          echo "Setting up Falco locally would be done with:"
+          echo "curl -s https://falco.org/repo/falcosecurity-packages.asc | apt-key add -"
+          echo "echo 'deb https://download.falco.org/packages/deb stable main' | tee -a /etc/apt/sources.list.d/falcosecurity.list"
+          echo "apt-get update && apt-get install -y falco"
+      
+      - name: Set up monitoring tools
+        run: |
+          echo "For local monitoring setup, use:"
+          echo "- Prometheus for metrics monitoring"
+          echo "- Grafana for visualization"
+          echo "- Loki for log aggregation"
+          echo "These can be set up using docker-compose in development"
+      
+      - name: Generate security report
+        run: |
+          echo "## DevSecOps Pipeline Results" > security-report.md
+          echo "Security scan completed on $(date)" >> security-report.md
+          echo "Check the uploaded artifacts for detailed results" >> security-report.md
+      
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: security-report.md
+
+  # SECURITY DASHBOARD
+  security-dashboard:
+    runs-on: ubuntu-latest
+    needs: [secure-code, secure-build, security-testing, secure-deploy, security-monitoring]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Generate combined report
+        run: |
+          echo "# DevSecOps Pipeline Security Report" > combined-report.md
+          echo "## Summary" >> combined-report.md
+          echo "Pipeline run completed at $(date)" >> combined-report.md
+          echo "Check individual artifacts for detailed reports" >> combined-report.md
+          
+          # Add more detailed reporting if needed
+      
+      - name: Upload combined report
+        uses: actions/upload-artifact@v3
+        with:
+          name: combined-security-report
+          path: combined-report.md

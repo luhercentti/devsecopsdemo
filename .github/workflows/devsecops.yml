@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -32,7 +32,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload Bandit results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bandit-results
           path: bandit-results.json
@@ -54,7 +54,7 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
       
       - name: Upload Semgrep results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: semgrep-results
           path: /tmp/semgrep.json
@@ -66,7 +66,7 @@ jobs:
     needs: [secure-code, semgrep-sast]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -103,7 +103,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload build security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-security-results
           path: |
@@ -117,7 +117,7 @@ jobs:
     needs: secure-build
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -131,7 +131,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload test security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-security-results
           path: coverage.xml
@@ -143,7 +143,7 @@ jobs:
     needs: security-testing
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -166,7 +166,7 @@ jobs:
         continue-on-error: true
       
       - name: Upload deploy security results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deploy-security-results
           path: |
@@ -180,7 +180,7 @@ jobs:
     needs: [secure-code, semgrep-sast, secure-build, security-testing, secure-deploy]
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         continue-on-error: true
       
       - name: Generate combined report
@@ -228,7 +228,7 @@ jobs:
           cat combined-report.md
       
       - name: Upload combined report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-report
           path: combined-report.md

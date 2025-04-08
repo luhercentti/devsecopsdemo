@@ -125,16 +125,23 @@ jobs:
       
       - name: Install test dependencies
         run: |
-          pip install pytest pytest-cov coverage
-          pip install -r app/requirements.txt || pip install flask requests
+          # Pin specific versions to avoid compatibility issues
+          pip install pytest==6.2.5 pytest-cov==2.12.1
+          pip install flask==2.0.1 werkzeug==2.0.1
+          # Install other dependencies as needed
+          if [ -f app/requirements.txt ]; then
+            pip install -r app/requirements.txt
+          else
+            pip install requests==2.25.1
+          fi
       
       - name: Run unit tests with coverage
         run: |
           mkdir -p coverage_reports
           # First check if test file exists
           if [ -f app/test_app.py ]; then
-            # Run without problematic plugins
-            python -m pytest app/test_app.py --cov=app --cov-report=xml:coverage_reports/coverage.xml --cov-report=html:coverage_reports/html || echo "Tests failed but continuing"
+            # Run tests with specific modules loaded
+            PYTHONPATH=. python -m pytest app/test_app.py --cov=app --cov-report=xml:coverage_reports/coverage.xml --cov-report=html:coverage_reports/html || echo "Tests failed but continuing"
           else
             echo "No test file found at app/test_app.py"
             # Create an empty coverage file to prevent downstream failures
@@ -181,7 +188,7 @@ jobs:
       
       - name: Deploy sample app for testing
         run: |
-          pip install flask requests
+          pip install flask==2.0.1 werkzeug==2.0.1 requests==2.25.1
           # Start the Flask app in the background
           nohup python -c "
           from flask import Flask
@@ -202,15 +209,23 @@ jobs:
         with:
           target: 'http://localhost:8080'
           cmd_options: '-a'
-          allow_issue_writing: true
+          # Disable GitHub issue creation since we don't have permissions
+          allow_issue_writing: false
           fail_action: false
+          # Specify the artifact name to match what's expected
+          artifact_name: 'zap_scan'
       
-      - name: List generated files
+      - name: Ensure ZAP reports are captured
         run: |
-          echo "Files in current directory:"
-          ls -la
-          echo "Looking for ZAP reports:"
-          find . -name "*zap*" -o -name "*report*"
+          # Create a directory for ZAP reports
+          mkdir -p zap_reports
+          
+          # Move all potential ZAP report files to our directory
+          find . -maxdepth 1 -name "*.html" -o -name "*.md" -o -name "*.json" | xargs -I{} cp {} zap_reports/ || true
+          
+          # Show what files we found
+          echo "ZAP Report files:"
+          ls -la zap_reports/
         if: always()
       
       - name: Upload ZAP Scan Results
@@ -218,10 +233,13 @@ jobs:
         with:
           name: zap-scan-results
           path: |
-            ./*zap*.html
-            ./*zap*.md
+            ./zap_reports/
             ./report*.html
             ./report*.md
+            ./report*.json
+            ./*zap*.html
+            ./*zap*.md
+            ./*zap*.json
         if: always()
 
   # DEPLOY PHASE - FIXED CHECKOV ACTION
@@ -262,7 +280,7 @@ jobs:
             checkov.sarif
         if: always()
 
-  # Updated security report generation to handle the ZAP report files
+  # Updated security report generation
   security-report:
     runs-on: ubuntu-latest
     needs: [secure-code, semgrep-sast, secure-build, test-with-coverage, dast-testing, secure-deploy]
@@ -283,6 +301,7 @@ jobs:
           echo "## Summary" >> combined-report.md
           echo "Pipeline run completed at $(date)" >> combined-report.md
           
+          # SAST Results
           echo "## SAST Results" >> combined-report.md
           echo "### Bandit Results" >> combined-report.md
           if [ -f "bandit-results/bandit-results.json" ]; then
@@ -298,6 +317,7 @@ jobs:
             echo "No Semgrep results found" >> combined-report.md
           fi
           
+          # Dependency Scanning
           echo "## Dependency Scanning Results" >> combined-report.md
           if [ -f "build-security-results/safety-results.json" ]; then
             echo "Safety found issues: $(grep -c "vulnerability" build-security-results/safety-results.json || echo "0")" >> combined-report.md
@@ -305,6 +325,7 @@ jobs:
             echo "No Safety results found" >> combined-report.md
           fi
           
+          # Container Scanning
           echo "## Container Scanning Results" >> combined-report.md
           if [ -f "build-security-results/trivy-results.sarif" ]; then
             echo "Trivy found vulnerabilities in container image" >> combined-report.md
@@ -312,6 +333,7 @@ jobs:
             echo "No Trivy results found" >> combined-report.md
           fi
           
+          # Code Coverage
           echo "## Code Coverage Results" >> combined-report.md
           if [ -f "coverage-reports/coverage_summary.txt" ]; then
             echo "### Code Coverage Summary" >> combined-report.md
@@ -322,19 +344,35 @@ jobs:
             echo "No code coverage results found" >> combined-report.md
           fi
           
+          # DAST Results
           echo "## DAST Results" >> combined-report.md
-          # Look for any ZAP reports with various possible filenames
-          ZAP_REPORT=$(find . -name "*zap*.md" -o -name "report*.md" | head -1)
+          
+          # Look for ZAP report files with various possible names/locations
+          ZAP_REPORT=$(find . -name "report_md.md" -o -name "*zap*.md" -o -name "report*.md" | head -1)
+          
           if [ -n "$ZAP_REPORT" ]; then
             echo "OWASP ZAP scan completed. See detailed results in the artifacts." >> combined-report.md
             echo "Summary from ZAP:" >> combined-report.md
             echo '```' >> combined-report.md
-            cat "$ZAP_REPORT" | grep -A 5 "Summary" || echo "No ZAP summary found" >> combined-report.md
+            
+            # Extract warnings from ZAP report
+            if grep -q "WARN-NEW" "$ZAP_REPORT"; then
+              echo "Warnings found:" >> combined-report.md
+              grep -A 2 "WARN-NEW" "$ZAP_REPORT" >> combined-report.md
+            fi
+            
+            # Extract alert summary if available
+            if grep -q "FAIL-NEW" "$ZAP_REPORT"; then
+              echo "Alert Summary:" >> combined-report.md
+              grep "FAIL-NEW" "$ZAP_REPORT" >> combined-report.md
+            fi
+            
             echo '```' >> combined-report.md
           else
             echo "No OWASP ZAP results found" >> combined-report.md
           fi
           
+          # IaC Scanning
           echo "## IaC Scanning Results" >> combined-report.md
           if [ -f "deploy-security-results/checkov.sarif" ]; then
             echo "Checkov found issues in infrastructure code" >> combined-report.md

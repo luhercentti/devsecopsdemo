@@ -27,15 +27,15 @@ jobs:
       
       # Updated Gitleaks action to fix cache issues
       - name: Run Gitleaks (Secret Scanner)
-        uses: gitleaks/gitleaks-action@v2
+        uses: zricethezav/gitleaks-action@v2
         continue-on-error: true
       
       - name: Upload Bandit results
         uses: actions/upload-artifact@v4
         with:
           name: bandit-results
-          enable-cache: false  # Disable caching to avoid the legacy cache service
-        continue-on-error: true
+          path: bandit-results.json
+        if: always()
 
   # SEMGREP STEP
   semgrep-sast:
@@ -208,7 +208,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.14.0
         with:
           target: 'http://localhost:8080'
-          cmd_options: '-a -j'  # Add JSON output format
+          cmd_options: '-a'
           # Disable GitHub issue creation since we don't have permissions
           allow_issue_writing: false
           fail_action: false
@@ -263,13 +263,12 @@ jobs:
       
       # Fixed Checkov action parameters
       - name: Run Checkov (IaC security)
-        uses: bridgecrewio/checkov-action@v12
+        uses: bridgecrewio/checkov-action@master
         with:
           directory: .
           soft_fail: true
-          output_format: json,sarif
-          output_file_path: checkov-report.json,checkov.sarif
-          framework: all  # Explicitly check all frameworks
+          output_format: sarif
+          output_file_path: checkov.sarif
         continue-on-error: true
       
       - name: Upload deploy security results
@@ -350,25 +349,29 @@ jobs:
           
           # Look for ZAP report files with various possible names/locations
           ZAP_REPORT=$(find . -name "report_md.md" -o -name "*zap*.md" -o -name "report*.md" | head -1)
-          ZAP_JSON=$(find . -name "report_json.json" -o -name "*zap*.json" -o -name "report*.json" | head -1)
-
-          echo "## DAST Results" >> combined-report.md
-          if [ -n "$ZAP_REPORT" ] || [ -n "$ZAP_JSON" ]; then
+          
+          if [ -n "$ZAP_REPORT" ]; then
             echo "OWASP ZAP scan completed. See detailed results in the artifacts." >> combined-report.md
             echo "Summary from ZAP:" >> combined-report.md
             echo '```' >> combined-report.md
             
-            if [ -n "$ZAP_REPORT" ]; then
-              grep -A 5 "WARN\|FAIL" "$ZAP_REPORT" >> combined-report.md || echo "No alerts found in ZAP markdown report" >> combined-report.md
-            elif [ -n "$ZAP_JSON" ]; then
-              echo "Alerts from JSON report:" >> combined-report.md
-              grep -o '"alertRef":[^,]*' "$ZAP_JSON" | sort | uniq -c >> combined-report.md || echo "No alerts found in ZAP JSON report" >> combined-report.md
+            # Extract warnings from ZAP report
+            if grep -q "WARN-NEW" "$ZAP_REPORT"; then
+              echo "Warnings found:" >> combined-report.md
+              grep -A 2 "WARN-NEW" "$ZAP_REPORT" >> combined-report.md
+            fi
+            
+            # Extract alert summary if available
+            if grep -q "FAIL-NEW" "$ZAP_REPORT"; then
+              echo "Alert Summary:" >> combined-report.md
+              grep "FAIL-NEW" "$ZAP_REPORT" >> combined-report.md
             fi
             
             echo '```' >> combined-report.md
           else
             echo "No OWASP ZAP results found" >> combined-report.md
-          fi          
+          fi
+          
           # IaC Scanning
           echo "## IaC Scanning Results" >> combined-report.md
           if [ -f "deploy-security-results/checkov.sarif" ]; then

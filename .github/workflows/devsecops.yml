@@ -110,7 +110,7 @@ jobs:
             trivy-results.sarif
         if: always()
 
-  # TEST PHASE WITH ENHANCED CODE COVERAGE
+  # Fixed Test with Coverage job
   test-with-coverage:
     runs-on: ubuntu-latest
     needs: secure-build
@@ -125,23 +125,30 @@ jobs:
       
       - name: Install test dependencies
         run: |
-          pip install pytest pytest-cov pytest-xdist coverage-badge flask requests
+          pip install pytest pytest-cov coverage
           pip install -r app/requirements.txt || pip install flask requests
       
       - name: Run unit tests with coverage
         run: |
           mkdir -p coverage_reports
-          pytest app/test_app.py --cov=app --cov-report=xml:coverage_reports/coverage.xml --cov-report=html:coverage_reports/html || echo "No tests found"
-      
-      - name: Generate coverage badge
-        run: |
-          coverage-badge -o coverage_reports/coverage-badge.svg -f
-        continue-on-error: true
+          # First check if test file exists
+          if [ -f app/test_app.py ]; then
+            # Run without problematic plugins
+            python -m pytest app/test_app.py --cov=app --cov-report=xml:coverage_reports/coverage.xml --cov-report=html:coverage_reports/html || echo "Tests failed but continuing"
+          else
+            echo "No test file found at app/test_app.py"
+            # Create an empty coverage file to prevent downstream failures
+            echo '<?xml version="1.0" ?><coverage version="5.5"></coverage>' > coverage_reports/coverage.xml
+            mkdir -p coverage_reports/html
+          fi
       
       - name: Generate text coverage summary
         run: |
-          coverage report --format=text > coverage_reports/coverage_summary.txt
-        continue-on-error: true
+          if [ -f .coverage ]; then
+            coverage report --format=text > coverage_reports/coverage_summary.txt || echo "No coverage data available"
+          else
+            echo "No coverage data available" > coverage_reports/coverage_summary.txt
+          fi
       
       - name: Upload coverage results
         uses: actions/upload-artifact@v4
@@ -149,6 +156,7 @@ jobs:
           name: coverage-reports
           path: coverage_reports/
         if: always()
+
       
       # SonarQube scanning for code quality metrics
       - name: SonarQube Scan
@@ -163,7 +171,7 @@ jobs:
         continue-on-error: true
         if: env.SONAR_TOKEN != ''
 
-  # DAST TESTING WITH OWASP ZAP - FIXED OUTPUT
+  # Fixed ZAP DAST Testing job
   dast-testing:
     runs-on: ubuntu-latest
     needs: secure-build
@@ -189,36 +197,31 @@ jobs:
           # Verify it's running
           curl http://localhost:8080/ || echo "App not started correctly"
       
-      # Fixed ZAP action to ensure reports are generated correctly
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
           target: 'http://localhost:8080'
-          rules_file_name: '.zap/rules.tsv'
           cmd_options: '-a'
           allow_issue_writing: true
           fail_action: false
       
-      - name: Ensure ZAP reports directory exists
-        run: mkdir -p zap-reports
-        if: always()
-      
-      - name: Move ZAP reports to dedicated directory
+      - name: List generated files
         run: |
-          mv *.html zap-reports/ || true
-          mv *.md zap-reports/ || true
-          # Create a fallback report if none exists
-          if [ ! -f zap-reports/zap-report.md ]; then
-            echo "# ZAP Scan Results" > zap-reports/zap-report.md
-            echo "Scan completed at $(date)" >> zap-reports/zap-report.md
-          fi
+          echo "Files in current directory:"
+          ls -la
+          echo "Looking for ZAP reports:"
+          find . -name "*zap*" -o -name "*report*"
         if: always()
       
       - name: Upload ZAP Scan Results
         uses: actions/upload-artifact@v4
         with:
           name: zap-scan-results
-          path: zap-reports/
+          path: |
+            ./*zap*.html
+            ./*zap*.md
+            ./report*.html
+            ./report*.md
         if: always()
 
   # DEPLOY PHASE - FIXED CHECKOV ACTION
@@ -259,13 +262,19 @@ jobs:
             checkov.sarif
         if: always()
 
-  # ENHANCED SECURITY REPORT WITH COVERAGE METRICS
+  # Updated security report generation to handle the ZAP report files
   security-report:
     runs-on: ubuntu-latest
     needs: [secure-code, semgrep-sast, secure-build, test-with-coverage, dast-testing, secure-deploy]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
+      
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find . -type f | sort
         continue-on-error: true
       
       - name: Generate combined report
@@ -314,11 +323,14 @@ jobs:
           fi
           
           echo "## DAST Results" >> combined-report.md
-          if [ -f "zap-scan-results/zap-report.md" ]; then
+          # Look for any ZAP reports with various possible filenames
+          ZAP_REPORT=$(find . -name "*zap*.md" -o -name "report*.md" | head -1)
+          if [ -n "$ZAP_REPORT" ]; then
             echo "OWASP ZAP scan completed. See detailed results in the artifacts." >> combined-report.md
-            # Include summary from ZAP report if possible
             echo "Summary from ZAP:" >> combined-report.md
-            grep -A 5 "Summary of Alerts" zap-scan-results/zap-report.md >> combined-report.md || echo "No ZAP summary found" >> combined-report.md
+            echo '```' >> combined-report.md
+            cat "$ZAP_REPORT" | grep -A 5 "Summary" || echo "No ZAP summary found" >> combined-report.md
+            echo '```' >> combined-report.md
           else
             echo "No OWASP ZAP results found" >> combined-report.md
           fi

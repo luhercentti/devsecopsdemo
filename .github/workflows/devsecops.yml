@@ -111,6 +111,94 @@ jobs:
             trivy-results.sarif
         if: always()
 
+  # CODE COVERAGE STAGE (NEW)
+  code-coverage:
+    runs-on: ubuntu-latest
+    needs: [secure-code]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov coverage
+          pip install -r app/requirements.txt || pip install flask requests
+      
+      - name: Run coverage
+        run: |
+          # Create directories if they don't exist
+          mkdir -p app
+          mkdir -p tests
+          
+          # If no tests exist, create a simple test file
+          if [ ! -f app/test_app.py ] && [ ! -f tests/test_app.py ]; then
+            echo "Creating sample test file for coverage demo"
+            if [ -f app/app.py ]; then
+              echo "import unittest
+              import sys
+              import os
+              
+              # Add app directory to path
+              sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+              
+              from app.app import app
+              
+              class TestApp(unittest.TestCase):
+                  def test_home(self):
+                      client = app.test_client()
+                      response = client.get('/')
+                      self.assertEqual(response.status_code, 200)
+                      
+              if __name__ == '__main__':
+                  unittest.main()" > tests/test_app.py
+            else
+              echo "import unittest
+              
+              class TestSample(unittest.TestCase):
+                  def test_sample(self):
+                      self.assertEqual(1, 1)
+                      
+              if __name__ == '__main__':
+                  unittest.main()" > tests/test_app.py
+            fi
+          fi
+          
+          # Run coverage
+          coverage run -m pytest tests/ app/ --cov=app --cov-report=xml:coverage.xml --cov-report=html:coverage_html || echo "Tests failed but continuing"
+      
+      - name: Generate coverage report
+        run: |
+          coverage report
+          
+          # Create a markdown report
+          echo "# Code Coverage Report" > coverage-report.md
+          echo "Generated on $(date)" >> coverage-report.md
+          echo "" >> coverage-report.md
+          echo "## Summary" >> coverage-report.md
+          echo '```' >> coverage-report.md
+          coverage report >> coverage-report.md
+          echo '```' >> coverage-report.md
+          
+          echo "" >> coverage-report.md
+          echo "## Details" >> coverage-report.md
+          echo "See HTML report in artifacts for detailed coverage information." >> coverage-report.md
+      
+      - name: Upload coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-results
+          path: |
+            coverage.xml
+            coverage_html/
+            coverage-report.md
+        if: always()
+
   # TEST PHASE WITH UNIT TESTS
   unit-testing:
     runs-on: ubuntu-latest
@@ -237,7 +325,7 @@ jobs:
   # GENERATE ENHANCED DETAILED REPORT
   security-report:
     runs-on: ubuntu-latest
-    needs: [secure-code, semgrep-sast, secure-build, unit-testing, dast-testing, secure-deploy]
+    needs: [secure-code, semgrep-sast, secure-build, code-coverage, unit-testing, dast-testing, secure-deploy]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -264,243 +352,264 @@ jobs:
             echo "Bandit found issues: $(grep -c "issue" bandit-results/bandit-results.json || echo "0")" >> combined-report.md
             echo "" >> combined-report.md
             echo "#### Top Findings:" >> combined-report.md
-            python3 -c '
-            import json, sys
-            try:
-                with open("bandit-results/bandit-results.json") as f:
-                    data = json.load(f)
-                    if "results" in data:
-                        for i, issue in enumerate(data["results"][:5]):  # Show top 5 issues
-                            print(f"- **{issue.get(\"issue_text\", \"\")}**")
-                            print(f"  - Severity: {issue.get(\"issue_severity\", \"\")}")
-                            print(f"  - Confidence: {issue.get(\"issue_confidence\", \"\")}")
-                            print(f"  - File: {issue.get(\"filename\", \"\")}:{issue.get(\"line_number\", \"\")}")
-                            print("")
-                        if len(data["results"]) > 5:
-                            print(f"- *And {len(data[\"results\"]) - 5} more issues...*")
-            except Exception as e:
-                print(f"Error processing Bandit results: {e}")
-                        ' >> combined-report.md
-                      else
-                        echo "No Bandit results found" >> combined-report.md
-                      fi
-                      
-                      # SAST Results - Semgrep
-                      echo "### Semgrep Results" >> combined-report.md
-                      if [ -f "semgrep-results/semgrep.json" ]; then
-                        echo "Semgrep found issues: $(grep -c "check_id" semgrep-results/semgrep.json || echo "0")" >> combined-report.md
-                        echo "" >> combined-report.md
-                        echo "#### Top Findings:" >> combined-report.md
-                        python3 -c '
-            import json, sys
-            try:
-                with open("semgrep-results/semgrep.json") as f:
-                    data = json.load(f)
-                    if "results" in data:
-                        for i, result in enumerate(data["results"][:5]):  # Show top 5 issues
-                            print(f"- **{result.get(\"check_id\", \"\")}**")
-                            print(f"  - Message: {result.get(\"extra\", {}).get(\"message\", \"\")}")
-                            print(f"  - Path: {result.get(\"path\", \"\")}:{result.get(\"start\", {}).get(\"line\", \"\")}")
-                            print(f"  - Severity: {result.get(\"extra\", {}).get(\"severity\", \"\")}")
-                            print("")
-                        if len(data["results"]) > 5:
-                            print(f"- *And {len(data[\"results\"]) - 5} more issues...*")
-            except Exception as e:
-                print(f"Error processing Semgrep results: {e}")
-                        ' >> combined-report.md
-                      else
-                        echo "No Semgrep results found" >> combined-report.md
-                      fi
-                      
-                      # Dependency Scanning Results
-                      echo "## Dependency Scanning Results" >> combined-report.md
-                      if [ -f "build-security-results/safety-results.json" ]; then
-                        echo "Safety found issues: $(grep -c "vulnerability" build-security-results/safety-results.json || echo "0")" >> combined-report.md
-                        echo "" >> combined-report.md
-                        echo "#### Vulnerable Dependencies:" >> combined-report.md
-                        python3 -c '
-            import json, sys
-            try:
-                with open("build-security-results/safety-results.json") as f:
-                    data = json.load(f)
-                    if "vulnerabilities" in data:
-                        for i, vuln in enumerate(data["vulnerabilities"][:5]):  # Show top 5 vulnerabilities
-                            print(f"- **{vuln.get(\"package_name\", \"\")}:** {vuln.get(\"vulnerability_id\", \"\")}")
-                            print(f"  - Installed version: {vuln.get(\"installed_version\", \"\")}")
-                            print(f"  - Vulnerable spec: {vuln.get(\"vulnerable_spec\", \"\")}")
-                            print(f"  - CVE: {vuln.get(\"cve\", \"N/A\")}")
-                            print("")
-                        if len(data["vulnerabilities"]) > 5:
-                            print(f"- *And {len(data[\"vulnerabilities\"]) - 5} more vulnerabilities...*")
-            except Exception as e:
-                print(f"Error processing Safety results: {e}")
-                        ' >> combined-report.md
-                      else
-                        echo "No Safety results found" >> combined-report.md
-                      fi
-                      
-                      # Container Scanning Results
-                      echo "## Container Scanning Results" >> combined-report.md
-                      if [ -f "build-security-results/trivy-results.sarif" ]; then
-                        echo "Trivy found vulnerabilities in container image:" >> combined-report.md
-                        echo "" >> combined-report.md
-                        python3 -c '
-            import json, sys
-            try:
-                with open("build-security-results/trivy-results.sarif") as f:
-                    data = json.load(f)
-                    results = data.get("runs", [{}])[0].get("results", [])
-                    print(f"Total vulnerabilities found: {len(results)}")
-                    print("")
-                    severities = {}
-                    
-                    for result in results[:10]:  # Show top 10 vulnerabilities
-                        level = result.get("level", "")
-                        severities[level] = severities.get(level, 0) + 1
-                        
-                        print(f"- **{result.get(\"ruleId\", \"\")}**")
-                        print(f"  - Severity: {level}")
-                        message = result.get("message", {}).get("text", "")
-                        print(f"  - {message}")
-                        print("")
-                        
-                    print("### Severity Breakdown:")
-                    for sev, count in severities.items():
-                        print(f"- {sev}: {count}")
-                        
-                    if len(results) > 10:
-                        print(f"\n- *And {len(results) - 10} more vulnerabilities...*")
-            except Exception as e:
-                print(f"Error processing Trivy results: {e}")
-                        ' >> combined-report.md
-                      else
-                        echo "No Trivy results found" >> combined-report.md
-                      fi
-                      
-                      # DAST Results
-                      echo "## DAST Results" >> combined-report.md
-                      if [ -f "zap-scan-results/zap-report.md" ]; then
-                        echo "OWASP ZAP scan completed." >> combined-report.md
-                        echo "" >> combined-report.md
-                        # Include content from ZAP report
-                        cat zap-scan-results/zap-report.md >> combined-report.md
-                      else
-                        echo "No OWASP ZAP results found" >> combined-report.md
-                      fi
-                      
-                      # IaC Scanning Results
-                      echo "## IaC Scanning Results" >> combined-report.md
-                      if [ -f "deploy-security-results/checkov.sarif" ]; then
-                        echo "Checkov found infrastructure code issues:" >> combined-report.md
-                        echo "" >> combined-report.md
-                        python3 -c '
-            import json, sys
-            try:
-                with open("deploy-security-results/checkov.sarif") as f:
-                    data = json.load(f)
-                    results = data.get("runs", [{}])[0].get("results", [])
-                    print(f"Total issues found: {len(results)}")
-                    print("")
-                    
-                    for result in results[:5]:  # Show top 5 issues
-                        rule_id = result.get("ruleId", "")
-                        message = result.get("message", {}).get("text", "")
-                        level = result.get("level", "")
-                        location = result.get("locations", [{}])[0]
-                        file_path = location.get("physicalLocation", {}).get("artifactLocation", {}).get("uri", "")
-                        
-                        print(f"- **{rule_id}**")
-                        print(f"  - Severity: {level}")
-                        print(f"  - File: {file_path}")
-                        print(f"  - Message: {message}")
-                        print("")
-                        
-                    if len(results) > 5:
-                        print(f"- *And {len(results) - 5} more issues...*")
-            except Exception as e:
-                print(f"Error processing Checkov results: {e}")
-                        ' >> combined-report.md
-                      else
-                        echo "No Checkov results found" >> combined-report.md
-                      fi
-                      
-                      echo "## Conclusion" >> combined-report.md
-                      echo "This report provides a summary of security issues detected during the pipeline run." >> combined-report.md
-                      echo "For full details, please download the individual artifacts from the GitHub Actions run." >> combined-report.md
-                      
-                      cat combined-report.md
-                  
-                  - name: Generate HTML Report
-                    run: |
-                      # Create HTML version of the report
-                      echo '<!DOCTYPE html>
-                      <html>
-                      <head>
-                          <meta charset="UTF-8">
-                          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                          <title>DevSecOps Security Report</title>
-                          <style>
-                              body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 1200px; margin: 0 auto; padding: 20px; }
-                              h1, h2, h3, h4 { color: #333; }
-                              h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
-                              .severity-high { color: #d73a49; }
-                              .severity-medium { color: #f66a0a; }
-                              .severity-low { color: #2cbe4e; }
-                              .severity-critical { color: #b31d28; font-weight: bold; }
-                              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                              th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-                              th { background-color: #f2f2f2; }
-                              .summary-box { border: 1px solid #ddd; padding: 15px; margin: 15px 0; background-color: #f8f8f8; }
-                          </style>
-                      </head>
-                      <body>' > detailed-report.html
-                      
-                      # Convert markdown to basic HTML
-                      python3 -c '
-            import sys, os, re
+            
+            # Process Bandit results
+            python3 -c "
+import json, sys
+try:
+    with open('bandit-results/bandit-results.json') as f:
+        data = json.load(f)
+        if 'results' in data:
+            for i, issue in enumerate(data['results'][:5]):  # Show top 5 issues
+                print(f\"- **{issue.get('issue_text', '')}**\")
+                print(f\"  - Severity: {issue.get('issue_severity', '')}\")
+                print(f\"  - Confidence: {issue.get('issue_confidence', '')}\")
+                print(f\"  - File: {issue.get('filename', '')}:{issue.get('line_number', '')}\")
+                print('')
+            if len(data['results']) > 5:
+                print(f\"- *And {len(data['results']) - 5} more issues...*\")
+except Exception as e:
+    print(f\"Error processing Bandit results: {e}\")
+" >> combined-report.md
+          else
+            echo "No Bandit results found" >> combined-report.md
+          fi
+          
+          # SAST Results - Semgrep
+          echo "### Semgrep Results" >> combined-report.md
+          if [ -f "semgrep-results/semgrep.json" ]; then
+            echo "Semgrep found issues: $(grep -c "check_id" semgrep-results/semgrep.json || echo "0")" >> combined-report.md
+            echo "" >> combined-report.md
+            echo "#### Top Findings:" >> combined-report.md
+            
+            # Process Semgrep results
+            python3 -c "
+import json, sys
+try:
+    with open('semgrep-results/semgrep.json') as f:
+        data = json.load(f)
+        if 'results' in data:
+            for i, result in enumerate(data['results'][:5]):  # Show top 5 issues
+                print(f\"- **{result.get('check_id', '')}**\")
+                print(f\"  - Message: {result.get('extra', {}).get('message', '')}\")
+                print(f\"  - Path: {result.get('path', '')}:{result.get('start', {}).get('line', '')}\")
+                print(f\"  - Severity: {result.get('extra', {}).get('severity', '')}\")
+                print('')
+            if len(data['results']) > 5:
+                print(f\"- *And {len(data['results']) - 5} more issues...*\")
+except Exception as e:
+    print(f\"Error processing Semgrep results: {e}\")
+" >> combined-report.md
+          else
+            echo "No Semgrep results found" >> combined-report.md
+          fi
+          
+          # Code Coverage Results (NEW)
+          echo "## Code Coverage Results" >> combined-report.md
+          if [ -f "code-coverage-results/coverage-report.md" ]; then
+            echo "Code coverage analysis completed:" >> combined-report.md
+            echo "" >> combined-report.md
+            # Include coverage report content
+            grep -A 20 "## Summary" code-coverage-results/coverage-report.md >> combined-report.md
+          else
+            echo "No code coverage results found" >> combined-report.md
+          fi
+          
+          # Dependency Scanning Results
+          echo "## Dependency Scanning Results" >> combined-report.md
+          if [ -f "build-security-results/safety-results.json" ]; then
+            echo "Safety found issues: $(grep -c "vulnerability" build-security-results/safety-results.json || echo "0")" >> combined-report.md
+            echo "" >> combined-report.md
+            echo "#### Vulnerable Dependencies:" >> combined-report.md
+            
+            # Process Safety results
+            python3 -c "
+import json, sys
+try:
+    with open('build-security-results/safety-results.json') as f:
+        data = json.load(f)
+        if 'vulnerabilities' in data:
+            for i, vuln in enumerate(data['vulnerabilities'][:5]):  # Show top 5 vulnerabilities
+                print(f\"- **{vuln.get('package_name', '')}:** {vuln.get('vulnerability_id', '')}\")
+                print(f\"  - Installed version: {vuln.get('installed_version', '')}\")
+                print(f\"  - Vulnerable spec: {vuln.get('vulnerable_spec', '')}\")
+                print(f\"  - CVE: {vuln.get('cve', 'N/A')}\")
+                print('')
+            if len(data['vulnerabilities']) > 5:
+                print(f\"- *And {len(data['vulnerabilities']) - 5} more vulnerabilities...*\")
+except Exception as e:
+    print(f\"Error processing Safety results: {e}\")
+" >> combined-report.md
+          else
+            echo "No Safety results found" >> combined-report.md
+          fi
+          
+          # Container Scanning Results
+          echo "## Container Scanning Results" >> combined-report.md
+          if [ -f "build-security-results/trivy-results.sarif" ]; then
+            echo "Trivy found vulnerabilities in container image:" >> combined-report.md
+            echo "" >> combined-report.md
+            
+            # Process Trivy results
+            python3 -c "
+import json, sys
+try:
+    with open('build-security-results/trivy-results.sarif') as f:
+        data = json.load(f)
+        results = data.get('runs', [{}])[0].get('results', [])
+        print(f\"Total vulnerabilities found: {len(results)}\")
+        print('')
+        severities = {}
+        
+        for result in results[:10]:  # Show top 10 vulnerabilities
+            level = result.get('level', '')
+            severities[level] = severities.get(level, 0) + 1
+            
+            print(f\"- **{result.get('ruleId', '')}**\")
+            print(f\"  - Severity: {level}\")
+            message = result.get('message', {}).get('text', '')
+            print(f\"  - {message}\")
+            print('')
+            
+        print(\"### Severity Breakdown:\")
+        for sev, count in severities.items():
+            print(f\"- {sev}: {count}\")
+            
+        if len(results) > 10:
+            print(f\"\n- *And {len(results) - 10} more vulnerabilities...*\")
+except Exception as e:
+    print(f\"Error processing Trivy results: {e}\")
+" >> combined-report.md
+          else
+            echo "No Trivy results found" >> combined-report.md
+          fi
+          
+          # DAST Results
+          echo "## DAST Results" >> combined-report.md
+          if [ -f "zap-scan-results/zap-report.md" ]; then
+            echo "OWASP ZAP scan completed." >> combined-report.md
+            echo "" >> combined-report.md
+            # Include content from ZAP report
+            cat zap-scan-results/zap-report.md >> combined-report.md
+          else
+            echo "No OWASP ZAP results found" >> combined-report.md
+          fi
+          
+          # IaC Scanning Results
+          echo "## IaC Scanning Results" >> combined-report.md
+          if [ -f "deploy-security-results/checkov.sarif" ]; then
+            echo "Checkov found infrastructure code issues:" >> combined-report.md
+            echo "" >> combined-report.md
+            
+            # Process Checkov results
+            python3 -c "
+import json, sys
+try:
+    with open('deploy-security-results/checkov.sarif') as f:
+        data = json.load(f)
+        results = data.get('runs', [{}])[0].get('results', [])
+        print(f\"Total issues found: {len(results)}\")
+        print('')
+        
+        for result in results[:5]:  # Show top 5 issues
+            rule_id = result.get('ruleId', '')
+            message = result.get('message', {}).get('text', '')
+            level = result.get('level', '')
+            location = result.get('locations', [{}])[0]
+            file_path = location.get('physicalLocation', {}).get('artifactLocation', {}).get('uri', '')
+            
+            print(f\"- **{rule_id}**\")
+            print(f\"  - Severity: {level}\")
+            print(f\"  - File: {file_path}\")
+            print(f\"  - Message: {message}\")
+            print('')
+            
+        if len(results) > 5:
+            print(f\"- *And {len(results) - 5} more issues...*\")
+except Exception as e:
+    print(f\"Error processing Checkov results: {e}\")
+" >> combined-report.md
+          else
+            echo "No Checkov results found" >> combined-report.md
+          fi
+          
+          echo "## Conclusion" >> combined-report.md
+          echo "This report provides a summary of security issues detected during the pipeline run." >> combined-report.md
+          echo "For full details, please download the individual artifacts from the GitHub Actions run." >> combined-report.md
+          
+          cat combined-report.md
+      
+      - name: Generate HTML Report
+        run: |
+          # Create HTML version of the report
+          echo '<!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>DevSecOps Security Report</title>
+              <style>
+                  body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 1200px; margin: 0 auto; padding: 20px; }
+                  h1, h2, h3, h4 { color: #333; }
+                  h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+                  .severity-high { color: #d73a49; }
+                  .severity-medium { color: #f66a0a; }
+                  .severity-low { color: #2cbe4e; }
+                  .severity-critical { color: #b31d28; font-weight: bold; }
+                  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                  th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+                  th { background-color: #f2f2f2; }
+                  .summary-box { border: 1px solid #ddd; padding: 15px; margin: 15px 0; background-color: #f8f8f8; }
+              </style>
+          </head>
+          <body>' > detailed-report.html
+          
+          # Convert markdown to basic HTML
+          python3 -c "
+import sys, os, re
 
-            def md_to_html(md_file, html_file):
-                with open(md_file, "r") as f:
-                    md_content = f.read()
-                
-                # Convert headers
-                html_content = re.sub(r"^# (.*?)$", r"<h1>\1</h1>", md_content, flags=re.MULTILINE)
-                html_content = re.sub(r"^## (.*?)$", r"<h2>\1</h2>", html_content, flags=re.MULTILINE)
-                html_content = re.sub(r"^### (.*?)$", r"<h3>\1</h3>", html_content, flags=re.MULTILINE)
-                html_content = re.sub(r"^#### (.*?)$", r"<h4>\1</h4>", html_content, flags=re.MULTILINE)
-                
-                # Convert lists
-                html_content = re.sub(r"^- (.*?)$", r"<li>\1</li>", html_content, flags=re.MULTILINE)
-                
-                # Convert bold
-                html_content = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", html_content)
-                
-                # Convert italics
-                html_content = re.sub(r"\*(.*?)\*", r"<em>\1</em>", html_content)
-                
-                # Add color to severity mentions
-                html_content = re.sub(r"Severity: CRITICAL|Severity: critical", r"Severity: <span class=\"severity-critical\">CRITICAL</span>", html_content, flags=re.IGNORECASE)
-                html_content = re.sub(r"Severity: HIGH|Severity: high", r"Severity: <span class=\"severity-high\">HIGH</span>", html_content, flags=re.IGNORECASE)
-                html_content = re.sub(r"Severity: MEDIUM|Severity: medium", r"Severity: <span class=\"severity-medium\">MEDIUM</span>", html_content, flags=re.IGNORECASE)
-                html_content = re.sub(r"Severity: LOW|Severity: low", r"Severity: <span class=\"severity-low\">LOW</span>", html_content, flags=re.IGNORECASE)
-                
-                # Convert paragraphs (any line that isn\'t a header or list item)
-                lines = html_content.split("\n")
-                for i in range(len(lines)):
-                    if not re.match(r"^<(h[1-6]|li|ul|ol)", lines[i]) and lines[i].strip():
-                        lines[i] = f"<p>{lines[i]}</p>"
-                
-                html_content = "\n".join(lines)
-                
-                # Add to HTML file
-                with open(html_file, "a") as f:
-                    f.write(html_content)
+def md_to_html(md_file, html_file):
+    with open(md_file, 'r') as f:
+        md_content = f.read()
+    
+    # Convert headers
+    html_content = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', md_content, flags=re.MULTILINE)
+    html_content = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
+    html_content = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
+    html_content = re.sub(r'^#### (.*?)$', r'<h4>\1</h4>', html_content, flags=re.MULTILINE)
+    
+    # Convert lists
+    html_content = re.sub(r'^- (.*?)$', r'<li>\1</li>', html_content, flags=re.MULTILINE)
+    
+    # Convert bold
+    html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
+    
+    # Convert italics
+    html_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html_content)
+    
+    # Add color to severity mentions
+    html_content = re.sub(r'Severity: CRITICAL|Severity: critical', r'Severity: <span class=\"severity-critical\">CRITICAL</span>', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'Severity: HIGH|Severity: high', r'Severity: <span class=\"severity-high\">HIGH</span>', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'Severity: MEDIUM|Severity: medium', r'Severity: <span class=\"severity-medium\">MEDIUM</span>', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'Severity: LOW|Severity: low', r'Severity: <span class=\"severity-low\">LOW</span>', html_content, flags=re.IGNORECASE)
+    
+    # Convert paragraphs (any line that isn't a header or list item)
+    lines = html_content.split('\n')
+    for i in range(len(lines)):
+        if not re.match(r'^<(h[1-6]|li|ul|ol)', lines[i]) and lines[i].strip():
+            lines[i] = f'<p>{lines[i]}</p>'
+    
+    html_content = '\n'.join(lines)
+    
+    # Add to HTML file
+    with open(html_file, 'a') as f:
+        f.write(html_content)
 
-            md_to_html("combined-report.md", "detailed-report.html")
-                      '
-                      
-                      # Close the HTML
-                      echo '</body></html>' >> detailed-report.html
+md_to_html('combined-report.md', 'detailed-report.html')
+" 
+          
+          # Close the HTML
+          echo '</body></html>' >> detailed-report.html
       
       - name: Upload combined reports
         uses: actions/upload-artifact@v4

@@ -41,7 +41,7 @@ jobs:
   # SEMGREP STEP
   semgrep-sast:
     name: Semgrep-SAST
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
     steps:

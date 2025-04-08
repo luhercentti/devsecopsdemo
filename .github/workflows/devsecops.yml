@@ -141,67 +141,67 @@ jobs:
             echo "Creating sample test file for coverage demo"
             if [ -f app/app.py ]; then
               cat > tests/test_app.py << 'EOL'
-import unittest
-import sys
-import os
+          import unittest
+          import sys
+          import os
 
-# Add app directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+          # Add app directory to path
+          sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.app import app
+          from app.app import app
 
-class TestApp(unittest.TestCase):
-    def test_home(self):
-        client = app.test_client()
-        response = client.get('/')
-        self.assertEqual(response.status_code, 200)
-        
-if __name__ == '__main__':
-    unittest.main()
-EOL
-            else
-              cat > tests/test_app.py << 'EOL'
-import unittest
+          class TestApp(unittest.TestCase):
+              def test_home(self):
+                  client = app.test_client()
+                  response = client.get('/')
+                  self.assertEqual(response.status_code, 200)
+                  
+          if __name__ == '__main__':
+              unittest.main()
+          EOL
+                      else
+                        cat > tests/test_app.py << 'EOL'
+          import unittest
 
-class TestSample(unittest.TestCase):
-    def test_sample(self):
-        self.assertEqual(1, 1)
-        
-if __name__ == '__main__':
-    unittest.main()
-EOL
-            fi
-          fi
-          
-          # Run coverage
-          coverage run -m pytest tests/ app/ --cov=app --cov-report=xml:coverage.xml --cov-report=html:coverage_html || echo "Tests failed but continuing"
-      
-      - name: Generate coverage report
-        run: |
-          coverage report
-          
-          # Create a markdown report
-          echo "# Code Coverage Report" > coverage-report.md
-          echo "Generated on $(date)" >> coverage-report.md
-          echo "" >> coverage-report.md
-          echo "## Summary" >> coverage-report.md
-          echo '```' >> coverage-report.md
-          coverage report >> coverage-report.md
-          echo '```' >> coverage-report.md
-          
-          echo "" >> coverage-report.md
-          echo "## Details" >> coverage-report.md
-          echo "See HTML report in artifacts for detailed coverage information." >> coverage-report.md
-      
-      - name: Upload coverage results
-        uses: actions/upload-artifact@v4
-        with:
-          name: code-coverage-results
-          path: |
-            coverage.xml
-            coverage_html/
-            coverage-report.md
-        if: always()
+          class TestSample(unittest.TestCase):
+              def test_sample(self):
+                  self.assertEqual(1, 1)
+                  
+          if __name__ == '__main__':
+              unittest.main()
+          EOL
+                      fi
+                    fi
+                    
+                    # Run coverage
+                    coverage run -m pytest tests/ app/ --cov=app --cov-report=xml:coverage.xml --cov-report=html:coverage_html || echo "Tests failed but continuing"
+                
+                - name: Generate coverage report
+                  run: |
+                    coverage report
+                    
+                    # Create a markdown report
+                    echo "# Code Coverage Report" > coverage-report.md
+                    echo "Generated on $(date)" >> coverage-report.md
+                    echo "" >> coverage-report.md
+                    echo "## Summary" >> coverage-report.md
+                    echo '```' >> coverage-report.md
+                    coverage report >> coverage-report.md
+                    echo '```' >> coverage-report.md
+                    
+                    echo "" >> coverage-report.md
+                    echo "## Details" >> coverage-report.md
+                    echo "See HTML report in artifacts for detailed coverage information." >> coverage-report.md
+                
+                - name: Upload coverage results
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: code-coverage-results
+                    path: |
+                      coverage.xml
+                      coverage_html/
+                      coverage-report.md
+                  if: always()
 
   # TEST PHASE WITH UNIT TESTS
   unit-testing:
@@ -243,494 +243,494 @@ EOL
           # Create a sample Flask app
           mkdir -p app
           cat > app/sample_app.py << 'EOL'
-from flask import Flask
-app = Flask(__name__)
-@app.route('/')
-def home(): return 'Hello, DevSecOps!'
-@app.route('/api/data')
-def data(): return {'data': 'test'}
-if __name__ == '__main__': app.run(host='0.0.0.0', port=8080)
-EOL
-          # Start the Flask app in the background
-          nohup python app/sample_app.py &
-          # Wait for app to start
-          sleep 5
-          # Verify it's running
-          curl http://localhost:8080/ || echo "App not started correctly"
-      
-      - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: 'http://localhost:8080'
-          fail_action: false
-          cmd_options: '-r zap-report.html'
-        continue-on-error: true
-      
-      - name: Create ZAP Markdown Report
-        run: |
-          if [ -f zap-report.html ]; then
-            echo "# ZAP Scan Results" > zap-report.md
-            echo "Scan completed on $(date)" >> zap-report.md
-            echo "## Summary" >> zap-report.md
-            echo "ZAP baseline scan was performed against http://localhost:8080" >> zap-report.md
-            # Extract alerts from HTML (basic approach)
-            grep -A 3 "Alert" zap-report.html | sed 's/<[^>]*>//g' | grep -v "^$" >> zap-report.md || echo "No alerts found" >> zap-report.md
-          else
-            echo "# ZAP Scan Results" > zap-report.md
-            echo "No scan results available" >> zap-report.md
-          fi
-        continue-on-error: true
-      
-      - name: Upload ZAP Scan Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-scan-results
-          path: |
-            zap-report.html
-            zap-report.md
-        if: always()
-
-  # DEPLOY PHASE
-  secure-deploy:
-    runs-on: ubuntu-latest
-    needs: [unit-testing, dast-testing]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        if: ${{ hashFiles('**/*.tf') != '' }}
-      
-      - name: Run tfsec (Terraform Security)
-        uses: aquasecurity/tfsec-sarif-action@v0.1.4
-        with:
-          sarif_file: tfsec.sarif
-        if: ${{ hashFiles('**/*.tf') != '' }}
-        continue-on-error: true
-      
-      - name: Run Checkov (IaC security)
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: .
-          soft_fail: true
-          output_format: sarif
-          output_file_path: checkov.sarif
-        continue-on-error: true
-      
-      - name: Upload deploy security results
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-security-results
-          path: |
-            tfsec.sarif
-            checkov.sarif
-        if: always()
-
-  # GENERATE ENHANCED DETAILED REPORT
-  security-report:
-    runs-on: ubuntu-latest
-    needs: [secure-code, semgrep-sast, secure-build, code-coverage, unit-testing, dast-testing, secure-deploy]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-      
-      - name: Set up Python for report processing
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Create report scripts directory
-        run: mkdir -p .github/scripts
-      
-      # Create Python script for report generation
-      - name: Create report generation script
-        run: |
-          cat > .github/scripts/generate_report.py << 'EOL'
-import json
-import os
-import sys
-from datetime import datetime
-
-def process_bandit_results():
-    result_text = ""
-    try:
-        if os.path.exists('bandit-results/bandit-results.json'):
-            with open('bandit-results/bandit-results.json') as f:
-                data = json.load(f)
-                if 'results' in data:
-                    result_text += f"Bandit found issues: {len(data['results'])}\n\n"
-                    result_text += "#### Top Findings:\n"
-                    
-                    for i, issue in enumerate(data['results'][:5]):  # Show top 5 issues
-                        result_text += f"- **{issue.get('issue_text', '')}**\n"
-                        result_text += f"  - Severity: {issue.get('issue_severity', '')}\n"
-                        result_text += f"  - Confidence: {issue.get('issue_confidence', '')}\n"
-                        result_text += f"  - File: {issue.get('filename', '')}:{issue.get('line_number', '')}\n\n"
-                    
-                    if len(data['results']) > 5:
-                        result_text += f"- *And {len(data['results']) - 5} more issues...*\n"
-                else:
-                    result_text += "No issues found\n"
-        else:
-            result_text += "No Bandit results found\n"
-    except Exception as e:
-        result_text += f"Error processing Bandit results: {e}\n"
-    
-    return result_text
-
-def process_semgrep_results():
-    result_text = ""
-    try:
-        if os.path.exists('semgrep-results/semgrep.json'):
-            with open('semgrep-results/semgrep.json') as f:
-                data = json.load(f)
-                if 'results' in data:
-                    result_text += f"Semgrep found issues: {len(data['results'])}\n\n"
-                    result_text += "#### Top Findings:\n"
-                    
-                    for i, result in enumerate(data['results'][:5]):  # Show top 5 issues
-                        result_text += f"- **{result.get('check_id', '')}**\n"
-                        result_text += f"  - Message: {result.get('extra', {}).get('message', '')}\n"
-                        result_text += f"  - Path: {result.get('path', '')}:{result.get('start', {}).get('line', '')}\n"
-                        result_text += f"  - Severity: {result.get('extra', {}).get('severity', '')}\n\n"
-                    
-                    if len(data['results']) > 5:
-                        result_text += f"- *And {len(data['results']) - 5} more issues...*\n"
-                else:
-                    result_text += "No issues found\n"
-        else:
-            result_text += "No Semgrep results found\n"
-    except Exception as e:
-        result_text += f"Error processing Semgrep results: {e}\n"
-    
-    return result_text
-
-def process_safety_results():
-    result_text = ""
-    try:
-        if os.path.exists('build-security-results/safety-results.json'):
-            with open('build-security-results/safety-results.json') as f:
-                data = json.load(f)
-                if 'vulnerabilities' in data:
-                    result_text += f"Safety found issues: {len(data['vulnerabilities'])}\n\n"
-                    result_text += "#### Vulnerable Dependencies:\n"
-                    
-                    for i, vuln in enumerate(data['vulnerabilities'][:5]):  # Show top 5 vulnerabilities
-                        result_text += f"- **{vuln.get('package_name', '')}:** {vuln.get('vulnerability_id', '')}\n"
-                        result_text += f"  - Installed version: {vuln.get('installed_version', '')}\n"
-                        result_text += f"  - Vulnerable spec: {vuln.get('vulnerable_spec', '')}\n"
-                        result_text += f"  - CVE: {vuln.get('cve', 'N/A')}\n\n"
-                    
-                    if len(data['vulnerabilities']) > 5:
-                        result_text += f"- *And {len(data['vulnerabilities']) - 5} more vulnerabilities...*\n"
-                else:
-                    result_text += "No vulnerabilities found\n"
-        else:
-            result_text += "No Safety results found\n"
-    except Exception as e:
-        result_text += f"Error processing Safety results: {e}\n"
-    
-    return result_text
-
-def process_trivy_results():
-    result_text = ""
-    try:
-        if os.path.exists('build-security-results/trivy-results.sarif'):
-            with open('build-security-results/trivy-results.sarif') as f:
-                data = json.load(f)
-                results = data.get('runs', [{}])[0].get('results', [])
-                result_text += f"Total vulnerabilities found: {len(results)}\n\n"
+          from flask import Flask
+          app = Flask(__name__)
+          @app.route('/')
+          def home(): return 'Hello, DevSecOps!'
+          @app.route('/api/data')
+          def data(): return {'data': 'test'}
+          if __name__ == '__main__': app.run(host='0.0.0.0', port=8080)
+          EOL
+                    # Start the Flask app in the background
+                    nohup python app/sample_app.py &
+                    # Wait for app to start
+                    sleep 5
+                    # Verify it's running
+                    curl http://localhost:8080/ || echo "App not started correctly"
                 
-                severities = {}
+                - name: ZAP Baseline Scan
+                  uses: zaproxy/action-baseline@v0.14.0
+                  with:
+                    target: 'http://localhost:8080'
+                    fail_action: false
+                    cmd_options: '-r zap-report.html'
+                  continue-on-error: true
                 
-                for result in results[:10]:  # Show top 10 vulnerabilities
-                    level = result.get('level', '')
-                    severities[level] = severities.get(level, 0) + 1
+                - name: Create ZAP Markdown Report
+                  run: |
+                    if [ -f zap-report.html ]; then
+                      echo "# ZAP Scan Results" > zap-report.md
+                      echo "Scan completed on $(date)" >> zap-report.md
+                      echo "## Summary" >> zap-report.md
+                      echo "ZAP baseline scan was performed against http://localhost:8080" >> zap-report.md
+                      # Extract alerts from HTML (basic approach)
+                      grep -A 3 "Alert" zap-report.html | sed 's/<[^>]*>//g' | grep -v "^$" >> zap-report.md || echo "No alerts found" >> zap-report.md
+                    else
+                      echo "# ZAP Scan Results" > zap-report.md
+                      echo "No scan results available" >> zap-report.md
+                    fi
+                  continue-on-error: true
+                
+                - name: Upload ZAP Scan Results
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: zap-scan-results
+                    path: |
+                      zap-report.html
+                      zap-report.md
+                  if: always()
+
+            # DEPLOY PHASE
+            secure-deploy:
+              runs-on: ubuntu-latest
+              needs: [unit-testing, dast-testing]
+              steps:
+                - name: Checkout code
+                  uses: actions/checkout@v4
+                
+                - name: Setup Terraform
+                  uses: hashicorp/setup-terraform@v2
+                  if: ${{ hashFiles('**/*.tf') != '' }}
+                
+                - name: Run tfsec (Terraform Security)
+                  uses: aquasecurity/tfsec-sarif-action@v0.1.4
+                  with:
+                    sarif_file: tfsec.sarif
+                  if: ${{ hashFiles('**/*.tf') != '' }}
+                  continue-on-error: true
+                
+                - name: Run Checkov (IaC security)
+                  uses: bridgecrewio/checkov-action@master
+                  with:
+                    directory: .
+                    soft_fail: true
+                    output_format: sarif
+                    output_file_path: checkov.sarif
+                  continue-on-error: true
+                
+                - name: Upload deploy security results
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: deploy-security-results
+                    path: |
+                      tfsec.sarif
+                      checkov.sarif
+                  if: always()
+
+            # GENERATE ENHANCED DETAILED REPORT
+            security-report:
+              runs-on: ubuntu-latest
+              needs: [secure-code, semgrep-sast, secure-build, code-coverage, unit-testing, dast-testing, secure-deploy]
+              steps:
+                - name: Checkout code
+                  uses: actions/checkout@v4
+                  
+                - name: Download all artifacts
+                  uses: actions/download-artifact@v4
+                  continue-on-error: true
+                
+                - name: Set up Python for report processing
+                  uses: actions/setup-python@v4
+                  with:
+                    python-version: '3.10'
+                
+                - name: Create report scripts directory
+                  run: mkdir -p .github/scripts
+                
+                # Create Python script for report generation
+                - name: Create report generation script
+                  run: |
+                    cat > .github/scripts/generate_report.py << 'EOL'
+          import json
+          import os
+          import sys
+          from datetime import datetime
+
+          def process_bandit_results():
+              result_text = ""
+              try:
+                  if os.path.exists('bandit-results/bandit-results.json'):
+                      with open('bandit-results/bandit-results.json') as f:
+                          data = json.load(f)
+                          if 'results' in data:
+                              result_text += f"Bandit found issues: {len(data['results'])}\n\n"
+                              result_text += "#### Top Findings:\n"
+                              
+                              for i, issue in enumerate(data['results'][:5]):  # Show top 5 issues
+                                  result_text += f"- **{issue.get('issue_text', '')}**\n"
+                                  result_text += f"  - Severity: {issue.get('issue_severity', '')}\n"
+                                  result_text += f"  - Confidence: {issue.get('issue_confidence', '')}\n"
+                                  result_text += f"  - File: {issue.get('filename', '')}:{issue.get('line_number', '')}\n\n"
+                              
+                              if len(data['results']) > 5:
+                                  result_text += f"- *And {len(data['results']) - 5} more issues...*\n"
+                          else:
+                              result_text += "No issues found\n"
+                  else:
+                      result_text += "No Bandit results found\n"
+              except Exception as e:
+                  result_text += f"Error processing Bandit results: {e}\n"
+              
+              return result_text
+
+          def process_semgrep_results():
+              result_text = ""
+              try:
+                  if os.path.exists('semgrep-results/semgrep.json'):
+                      with open('semgrep-results/semgrep.json') as f:
+                          data = json.load(f)
+                          if 'results' in data:
+                              result_text += f"Semgrep found issues: {len(data['results'])}\n\n"
+                              result_text += "#### Top Findings:\n"
+                              
+                              for i, result in enumerate(data['results'][:5]):  # Show top 5 issues
+                                  result_text += f"- **{result.get('check_id', '')}**\n"
+                                  result_text += f"  - Message: {result.get('extra', {}).get('message', '')}\n"
+                                  result_text += f"  - Path: {result.get('path', '')}:{result.get('start', {}).get('line', '')}\n"
+                                  result_text += f"  - Severity: {result.get('extra', {}).get('severity', '')}\n\n"
+                              
+                              if len(data['results']) > 5:
+                                  result_text += f"- *And {len(data['results']) - 5} more issues...*\n"
+                          else:
+                              result_text += "No issues found\n"
+                  else:
+                      result_text += "No Semgrep results found\n"
+              except Exception as e:
+                  result_text += f"Error processing Semgrep results: {e}\n"
+              
+              return result_text
+
+          def process_safety_results():
+              result_text = ""
+              try:
+                  if os.path.exists('build-security-results/safety-results.json'):
+                      with open('build-security-results/safety-results.json') as f:
+                          data = json.load(f)
+                          if 'vulnerabilities' in data:
+                              result_text += f"Safety found issues: {len(data['vulnerabilities'])}\n\n"
+                              result_text += "#### Vulnerable Dependencies:\n"
+                              
+                              for i, vuln in enumerate(data['vulnerabilities'][:5]):  # Show top 5 vulnerabilities
+                                  result_text += f"- **{vuln.get('package_name', '')}:** {vuln.get('vulnerability_id', '')}\n"
+                                  result_text += f"  - Installed version: {vuln.get('installed_version', '')}\n"
+                                  result_text += f"  - Vulnerable spec: {vuln.get('vulnerable_spec', '')}\n"
+                                  result_text += f"  - CVE: {vuln.get('cve', 'N/A')}\n\n"
+                              
+                              if len(data['vulnerabilities']) > 5:
+                                  result_text += f"- *And {len(data['vulnerabilities']) - 5} more vulnerabilities...*\n"
+                          else:
+                              result_text += "No vulnerabilities found\n"
+                  else:
+                      result_text += "No Safety results found\n"
+              except Exception as e:
+                  result_text += f"Error processing Safety results: {e}\n"
+              
+              return result_text
+
+          def process_trivy_results():
+              result_text = ""
+              try:
+                  if os.path.exists('build-security-results/trivy-results.sarif'):
+                      with open('build-security-results/trivy-results.sarif') as f:
+                          data = json.load(f)
+                          results = data.get('runs', [{}])[0].get('results', [])
+                          result_text += f"Total vulnerabilities found: {len(results)}\n\n"
+                          
+                          severities = {}
+                          
+                          for result in results[:10]:  # Show top 10 vulnerabilities
+                              level = result.get('level', '')
+                              severities[level] = severities.get(level, 0) + 1
+                              
+                              result_text += f"- **{result.get('ruleId', '')}**\n"
+                              result_text += f"  - Severity: {level}\n"
+                              message = result.get('message', {}).get('text', '')
+                              result_text += f"  - {message}\n\n"
+                          
+                          result_text += "### Severity Breakdown:\n"
+                          for sev, count in severities.items():
+                              result_text += f"- {sev}: {count}\n"
+                          
+                          if len(results) > 10:
+                              result_text += f"\n- *And {len(results) - 10} more vulnerabilities...*\n"
+                  else:
+                      result_text += "No Trivy results found\n"
+              except Exception as e:
+                  result_text += f"Error processing Trivy results: {e}\n"
+              
+              return result_text
+
+          def process_checkov_results():
+              result_text = ""
+              try:
+                  if os.path.exists('deploy-security-results/checkov.sarif'):
+                      with open('deploy-security-results/checkov.sarif') as f:
+                          data = json.load(f)
+                          results = data.get('runs', [{}])[0].get('results', [])
+                          result_text += f"Total issues found: {len(results)}\n\n"
+                          
+                          for result in results[:5]:  # Show top 5 issues
+                              rule_id = result.get('ruleId', '')
+                              message = result.get('message', {}).get('text', '')
+                              level = result.get('level', '')
+                              location = result.get('locations', [{}])[0]
+                              file_path = location.get('physicalLocation', {}).get('artifactLocation', {}).get('uri', '')
+                              
+                              result_text += f"- **{rule_id}**\n"
+                              result_text += f"  - Severity: {level}\n"
+                              result_text += f"  - File: {file_path}\n"
+                              result_text += f"  - Message: {message}\n\n"
+                          
+                          if len(results) > 5:
+                              result_text += f"- *And {len(results) - 5} more issues...*\n"
+                  else:
+                      result_text += "No Checkov results found\n"
+              except Exception as e:
+                  result_text += f"Error processing Checkov results: {e}\n"
+              
+              return result_text
+
+          def generate_markdown_report():
+              report = "# DevSecOps Pipeline Security Report\n"
+              report += "## Summary\n"
+              report += f"Pipeline run completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+              
+              # SAST Results - Bandit
+              report += "## SAST Results\n"
+              report += "### Bandit Results\n"
+              report += process_bandit_results()
+              
+              # SAST Results - Semgrep
+              report += "\n### Semgrep Results\n"
+              report += process_semgrep_results()
+              
+              # Code Coverage Results
+              report += "\n## Code Coverage Results\n"
+              if os.path.exists("code-coverage-results/coverage-report.md"):
+                  with open("code-coverage-results/coverage-report.md", "r") as f:
+                      content = f.read()
+                      # Extract the summary section
+                      import re
+                      summary_match = re.search(r"## Summary.*?```.*?```", content, re.DOTALL)
+                      if summary_match:
+                          report += "Code coverage analysis completed:\n\n"
+                          report += summary_match.group(0) + "\n"
+                      else:
+                          report += "Code coverage report available in artifacts.\n"
+              else:
+                  report += "No code coverage results found\n"
+              
+              # Dependency Scanning Results
+              report += "\n## Dependency Scanning Results\n"
+              report += process_safety_results()
+              
+              # Container Scanning Results
+              report += "\n## Container Scanning Results\n"
+              report += process_trivy_results()
+              
+              # DAST Results
+              report += "\n## DAST Results\n"
+              if os.path.exists("zap-scan-results/zap-report.md"):
+                  report += "OWASP ZAP scan completed.\n\n"
+                  with open("zap-scan-results/zap-report.md", "r") as f:
+                      report += f.read()
+              else:
+                  report += "No OWASP ZAP results found\n"
+              
+              # IaC Scanning Results
+              report += "\n## IaC Scanning Results\n"
+              report += process_checkov_results()
+              
+              report += "\n## Conclusion\n"
+              report += "This report provides a summary of security issues detected during the pipeline run.\n"
+              report += "For full details, please download the individual artifacts from the GitHub Actions run.\n"
+              
+              return report
+
+          def md_to_html(md_content):
+              import re
+              
+              # Convert headers
+              html_content = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', md_content, flags=re.MULTILINE)
+              html_content = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
+              html_content = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
+              html_content = re.sub(r'^#### (.*?)$', r'<h4>\1</h4>', html_content, flags=re.MULTILINE)
+              
+              # Convert code blocks
+              html_content = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html_content, flags=re.DOTALL)
+              
+              # Convert lists
+              html_content = re.sub(r'^- (.*?)$', r'<li>\1</li>', html_content, flags=re.MULTILINE)
+              
+              # Convert bold
+              html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
+              
+              # Convert italics
+              html_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html_content)
+              
+              # Add color to severity mentions
+              html_content = re.sub(r'Severity: CRITICAL|Severity: critical', r'Severity: <span class=\"severity-critical\">CRITICAL</span>', html_content, flags=re.IGNORECASE)
+              html_content = re.sub(r'Severity: HIGH|Severity: high', r'Severity: <span class=\"severity-high\">HIGH</span>', html_content, flags=re.IGNORECASE)
+              html_content = re.sub(r'Severity: MEDIUM|Severity: medium', r'Severity: <span class=\"severity-medium\">MEDIUM</span>', html_content, flags=re.IGNORECASE)
+              html_content = re.sub(r'Severity: LOW|Severity: low', r'Severity: <span class=\"severity-low\">LOW</span>', html_content, flags=re.IGNORECASE)
+              
+              # Convert paragraphs (any line that isn't a header or list item)
+              lines = html_content.split('\n')
+              for i in range(len(lines)):
+                  if not re.match(r'^<(h[1-6]|li|ul|ol|pre)', lines[i]) and lines[i].strip():
+                      lines[i] = f'<p>{lines[i]}</p>'
+              
+              html_content = '\n'.join(lines)
+              
+              return html_content
+
+          def generate_html_report():
+              md_content = generate_markdown_report()
+              html_content = md_to_html(md_content)
+              
+              html = '''<!DOCTYPE html>
+              <html>
+              <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>DevSecOps Security Report</title>
+                  <style>
+                      body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 1200px; margin: 0 auto; padding: 20px; }
+                      h1, h2, h3, h4 { color: #333; }
+                      h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+                      .severity-high { color: #d73a49; }
+                      .severity-medium { color: #f66a0a; }
+                      .severity-low { color: #2cbe4e; }
+                      .severity-critical { color: #b31d28; font-weight: bold; }
+                      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                      th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+                      th { background-color: #f2f2f2; }
+                      .summary-box { border: 1px solid #ddd; padding: 15px; margin: 15px 0; background-color: #f8f8f8; }
+                      pre { background-color: #f6f8fa; padding: 16px; overflow: auto; border-radius: 6px; }
+                      code { font-family: monospace; }
+                      ul { list-style-type: disc; padding-left: 20px; }
+                      li { margin-bottom: 5px; }
+                  </style>
+              </head>
+              <body>
+              ''' + html_content + '''
+              </body>
+              </html>'''
+              
+              return html
+
+          if __name__ == "__main__":
+              # Generate and write markdown report
+              md_report = generate_markdown_report()
+              with open("combined-report.md", "w") as f:
+                  f.write(md_report)
+              
+              # Generate and write HTML report
+              html_report = generate_html_report()
+              with open("detailed-report.html", "w") as f:
+                  f.write(html_report)
+          EOL
                     
-                    result_text += f"- **{result.get('ruleId', '')}**\n"
-                    result_text += f"  - Severity: {level}\n"
-                    message = result.get('message', {}).get('text', '')
-                    result_text += f"  - {message}\n\n"
-                
-                result_text += "### Severity Breakdown:\n"
-                for sev, count in severities.items():
-                    result_text += f"- {sev}: {count}\n"
-                
-                if len(results) > 10:
-                    result_text += f"\n- *And {len(results) - 10} more vulnerabilities...*\n"
-        else:
-            result_text += "No Trivy results found\n"
-    except Exception as e:
-        result_text += f"Error processing Trivy results: {e}\n"
-    
-    return result_text
+                # Create Python script for comprehensive report
+                - name: Create comprehensive report script
+                  run: |
+                    cat > .github/scripts/generate_comprehensive_report.py << 'EOL'
+          import os
+          import glob
+          import shutil
+          from datetime import datetime
 
-def process_checkov_results():
-    result_text = ""
-    try:
-        if os.path.exists('deploy-security-results/checkov.sarif'):
-            with open('deploy-security-results/checkov.sarif') as f:
-                data = json.load(f)
-                results = data.get('runs', [{}])[0].get('results', [])
-                result_text += f"Total issues found: {len(results)}\n\n"
+          def create_comprehensive_report():
+              # Create full report directory
+              os.makedirs("full-report", exist_ok=True)
+              
+              # Copy all files to full-report directory
+              for filepath in glob.glob("**/*", recursive=True):
+                  if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
+                      try:
+                          # Create directory structure if needed
+                          dest_dir = os.path.dirname(os.path.join("full-report", filepath))
+                          if dest_dir:
+                              os.makedirs(dest_dir, exist_ok=True)
+                          
+                          # Copy file
+                          shutil.copy2(filepath, os.path.join("full-report", filepath))
+                      except Exception as e:
+                          print(f"Error copying {filepath}: {e}")
+              
+              # Create index.html
+              html = f'''<!DOCTYPE html>
+              <html>
+              <head>
+                  <meta charset="UTF-8">
+                  <title>DevSecOps Comprehensive Report</title>
+                  <style>
+                      body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+                      .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
+                      h1 {{ color: #333; }}
+                      .file-list {{ list-style-type: none; padding: 0; }}
+                      .file-list li {{ margin: 10px 0; }}
+                      .file-list a {{ text-decoration: none; color: #0366d6; }}
+                      .file-list a:hover {{ text-decoration: underline; }}
+                  </style>
+              </head>
+              <body>
+                  <h1>DevSecOps Comprehensive Security Report</h1>
+                  <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                  
+                  <div class="toc">
+                      <h2>Table of Contents</h2>
+                      <ul class="file-list">
+              '''
+              
+              # List all files with links
+              for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
+                  if os.path.isfile(filepath):
+                      rel_path = filepath.replace("full-report/", "")
+                      if rel_path != "index.html":
+                          html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
+              
+              html += '''      </ul>
+                  </div>
+                  
+                  <h2>Security Summary</h2>
+                  <p>This report contains the raw output from all security tools run in the pipeline.</p>
+                  <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
+              </body>
+              </html>'''
+              
+              with open("full-report/index.html", "w") as f:
+                  f.write(html)
+
+          if __name__ == "__main__":
+              create_comprehensive_report()
+          EOL
                 
-                for result in results[:5]:  # Show top 5 issues
-                    rule_id = result.get('ruleId', '')
-                    message = result.get('message', {}).get('text', '')
-                    level = result.get('level', '')
-                    location = result.get('locations', [{}])[0]
-                    file_path = location.get('physicalLocation', {}).get('artifactLocation', {}).get('uri', '')
+                - name: Run report generation scripts
+                  run: |
+                    # Run the markdown and HTML report generation
+                    python .github/scripts/generate_report.py
                     
-                    result_text += f"- **{rule_id}**\n"
-                    result_text += f"  - Severity: {level}\n"
-                    result_text += f"  - File: {file_path}\n"
-                    result_text += f"  - Message: {message}\n\n"
+                    # Run the comprehensive report generation 
+                    python .github/scripts/generate_comprehensive_report.py
                 
-                if len(results) > 5:
-                    result_text += f"- *And {len(results) - 5} more issues...*\n"
-        else:
-            result_text += "No Checkov results found\n"
-    except Exception as e:
-        result_text += f"Error processing Checkov results: {e}\n"
-    
-    return result_text
-
-def generate_markdown_report():
-    report = "# DevSecOps Pipeline Security Report\n"
-    report += "## Summary\n"
-    report += f"Pipeline run completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    
-    # SAST Results - Bandit
-    report += "## SAST Results\n"
-    report += "### Bandit Results\n"
-    report += process_bandit_results()
-    
-    # SAST Results - Semgrep
-    report += "\n### Semgrep Results\n"
-    report += process_semgrep_results()
-    
-    # Code Coverage Results
-    report += "\n## Code Coverage Results\n"
-    if os.path.exists("code-coverage-results/coverage-report.md"):
-        with open("code-coverage-results/coverage-report.md", "r") as f:
-            content = f.read()
-            # Extract the summary section
-            import re
-            summary_match = re.search(r"## Summary.*?```.*?```", content, re.DOTALL)
-            if summary_match:
-                report += "Code coverage analysis completed:\n\n"
-                report += summary_match.group(0) + "\n"
-            else:
-                report += "Code coverage report available in artifacts.\n"
-    else:
-        report += "No code coverage results found\n"
-    
-    # Dependency Scanning Results
-    report += "\n## Dependency Scanning Results\n"
-    report += process_safety_results()
-    
-    # Container Scanning Results
-    report += "\n## Container Scanning Results\n"
-    report += process_trivy_results()
-    
-    # DAST Results
-    report += "\n## DAST Results\n"
-    if os.path.exists("zap-scan-results/zap-report.md"):
-        report += "OWASP ZAP scan completed.\n\n"
-        with open("zap-scan-results/zap-report.md", "r") as f:
-            report += f.read()
-    else:
-        report += "No OWASP ZAP results found\n"
-    
-    # IaC Scanning Results
-    report += "\n## IaC Scanning Results\n"
-    report += process_checkov_results()
-    
-    report += "\n## Conclusion\n"
-    report += "This report provides a summary of security issues detected during the pipeline run.\n"
-    report += "For full details, please download the individual artifacts from the GitHub Actions run.\n"
-    
-    return report
-
-def md_to_html(md_content):
-    import re
-    
-    # Convert headers
-    html_content = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', md_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^#### (.*?)$', r'<h4>\1</h4>', html_content, flags=re.MULTILINE)
-    
-    # Convert code blocks
-    html_content = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html_content, flags=re.DOTALL)
-    
-    # Convert lists
-    html_content = re.sub(r'^- (.*?)$', r'<li>\1</li>', html_content, flags=re.MULTILINE)
-    
-    # Convert bold
-    html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
-    
-    # Convert italics
-    html_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html_content)
-    
-    # Add color to severity mentions
-    html_content = re.sub(r'Severity: CRITICAL|Severity: critical', r'Severity: <span class=\"severity-critical\">CRITICAL</span>', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'Severity: HIGH|Severity: high', r'Severity: <span class=\"severity-high\">HIGH</span>', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'Severity: MEDIUM|Severity: medium', r'Severity: <span class=\"severity-medium\">MEDIUM</span>', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'Severity: LOW|Severity: low', r'Severity: <span class=\"severity-low\">LOW</span>', html_content, flags=re.IGNORECASE)
-    
-    # Convert paragraphs (any line that isn't a header or list item)
-    lines = html_content.split('\n')
-    for i in range(len(lines)):
-        if not re.match(r'^<(h[1-6]|li|ul|ol|pre)', lines[i]) and lines[i].strip():
-            lines[i] = f'<p>{lines[i]}</p>'
-    
-    html_content = '\n'.join(lines)
-    
-    return html_content
-
-def generate_html_report():
-    md_content = generate_markdown_report()
-    html_content = md_to_html(md_content)
-    
-    html = '''<!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>DevSecOps Security Report</title>
-        <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 1200px; margin: 0 auto; padding: 20px; }
-            h1, h2, h3, h4 { color: #333; }
-            h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
-            .severity-high { color: #d73a49; }
-            .severity-medium { color: #f66a0a; }
-            .severity-low { color: #2cbe4e; }
-            .severity-critical { color: #b31d28; font-weight: bold; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-            th { background-color: #f2f2f2; }
-            .summary-box { border: 1px solid #ddd; padding: 15px; margin: 15px 0; background-color: #f8f8f8; }
-            pre { background-color: #f6f8fa; padding: 16px; overflow: auto; border-radius: 6px; }
-            code { font-family: monospace; }
-            ul { list-style-type: disc; padding-left: 20px; }
-            li { margin-bottom: 5px; }
-        </style>
-    </head>
-    <body>
-    ''' + html_content + '''
-    </body>
-    </html>'''
-    
-    return html
-
-if __name__ == "__main__":
-    # Generate and write markdown report
-    md_report = generate_markdown_report()
-    with open("combined-report.md", "w") as f:
-        f.write(md_report)
-    
-    # Generate and write HTML report
-    html_report = generate_html_report()
-    with open("detailed-report.html", "w") as f:
-        f.write(html_report)
-EOL
-          
-      # Create Python script for comprehensive report
-      - name: Create comprehensive report script
-        run: |
-          cat > .github/scripts/generate_comprehensive_report.py << 'EOL'
-import os
-import glob
-import shutil
-from datetime import datetime
-
-def create_comprehensive_report():
-    # Create full report directory
-    os.makedirs("full-report", exist_ok=True)
-    
-    # Copy all files to full-report directory
-    for filepath in glob.glob("**/*", recursive=True):
-        if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
-            try:
-                # Create directory structure if needed
-                dest_dir = os.path.dirname(os.path.join("full-report", filepath))
-                if dest_dir:
-                    os.makedirs(dest_dir, exist_ok=True)
-                
-                # Copy file
-                shutil.copy2(filepath, os.path.join("full-report", filepath))
-            except Exception as e:
-                print(f"Error copying {filepath}: {e}")
-    
-    # Create index.html
-    html = f'''<!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>DevSecOps Comprehensive Report</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
-            .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
-            h1 {{ color: #333; }}
-            .file-list {{ list-style-type: none; padding: 0; }}
-            .file-list li {{ margin: 10px 0; }}
-            .file-list a {{ text-decoration: none; color: #0366d6; }}
-            .file-list a:hover {{ text-decoration: underline; }}
-        </style>
-    </head>
-    <body>
-        <h1>DevSecOps Comprehensive Security Report</h1>
-        <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        
-        <div class="toc">
-            <h2>Table of Contents</h2>
-            <ul class="file-list">
-    '''
-    
-    # List all files with links
-    for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
-        if os.path.isfile(filepath):
-            rel_path = filepath.replace("full-report/", "")
-            if rel_path != "index.html":
-                html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
-    
-    html += '''      </ul>
-        </div>
-        
-        <h2>Security Summary</h2>
-        <p>This report contains the raw output from all security tools run in the pipeline.</p>
-        <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
-    </body>
-    </html>'''
-    
-    with open("full-report/index.html", "w") as f:
-        f.write(html)
-
-if __name__ == "__main__":
-    create_comprehensive_report()
-EOL
-      
-      - name: Run report generation scripts
-        run: |
-          # Run the markdown and HTML report generation
-          python .github/scripts/generate_report.py
-          
-          # Run the comprehensive report generation 
-          python .github/scripts/generate_comprehensive_report.py
-      
-      - name: Upload combined reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            combined-report.md
-            detailed-report.html
+                - name: Upload combined reports
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: security-reports
+                    path: |
+                      combined-report.md
+                      detailed-report.html
 
 # Generate comprehensive report with all findings
 comprehensive-report:
@@ -758,79 +758,79 @@ comprehensive-report:
         
         # Create the script
         cat > .github/scripts/generate_comprehensive_report.py << 'EOL'
-import os
-import glob
-import shutil
-from datetime import datetime
+        import os
+        import glob
+        import shutil
+        from datetime import datetime
 
-def create_comprehensive_report():
-  # Create full report directory
-  os.makedirs("full-report", exist_ok=True)
-  
-  # Copy all files to full-report directory
-  for filepath in glob.glob("**/*", recursive=True):
-      if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
-          try:
-              # Create directory structure if needed
-              dest_dir = os.path.dirname(os.path.join("full-report", filepath))
-              if dest_dir:
-                  os.makedirs(dest_dir, exist_ok=True)
+        def create_comprehensive_report():
+          # Create full report directory
+          os.makedirs("full-report", exist_ok=True)
+          
+          # Copy all files to full-report directory
+          for filepath in glob.glob("**/*", recursive=True):
+              if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
+                  try:
+                      # Create directory structure if needed
+                      dest_dir = os.path.dirname(os.path.join("full-report", filepath))
+                      if dest_dir:
+                          os.makedirs(dest_dir, exist_ok=True)
+                      
+                      # Copy file
+                      shutil.copy2(filepath, os.path.join("full-report", filepath))
+                  except Exception as e:
+                      print(f"Error copying {filepath}: {e}")
+          
+          # Create index.html
+          html = f'''<!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="UTF-8">
+              <title>DevSecOps Comprehensive Report</title>
+              <style>
+                  body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+                  .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
+                  h1 {{ color: #333; }}
+                  .file-list {{ list-style-type: none; padding: 0; }}
+                  .file-list li {{ margin: 10px 0; }}
+                  .file-list a {{ text-decoration: none; color: #0366d6; }}
+                  .file-list a:hover {{ text-decoration: underline; }}
+              </style>
+          </head>
+          <body>
+              <h1>DevSecOps Comprehensive Security Report</h1>
+              <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
               
-              # Copy file
-              shutil.copy2(filepath, os.path.join("full-report", filepath))
-          except Exception as e:
-              print(f"Error copying {filepath}: {e}")
-  
-  # Create index.html
-  html = f'''<!DOCTYPE html>
-  <html>
-  <head>
-      <meta charset="UTF-8">
-      <title>DevSecOps Comprehensive Report</title>
-      <style>
-          body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
-          .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
-          h1 {{ color: #333; }}
-          .file-list {{ list-style-type: none; padding: 0; }}
-          .file-list li {{ margin: 10px 0; }}
-          .file-list a {{ text-decoration: none; color: #0366d6; }}
-          .file-list a:hover {{ text-decoration: underline; }}
-      </style>
-  </head>
-  <body>
-      <h1>DevSecOps Comprehensive Security Report</h1>
-      <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-      
-      <div class="toc">
-          <h2>Table of Contents</h2>
-          <ul class="file-list">
-  '''
-  
-  # List all files with links
-  for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
-      if os.path.isfile(filepath):
-          rel_path = filepath.replace("full-report/", "")
-          if rel_path != "index.html":
-              html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
-  
-  html += '''      </ul>
-      </div>
-      
-      <h2>Security Summary</h2>
-      <p>This report contains the raw output from all security tools run in the pipeline.</p>
-      <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
-  </body>
-  </html>'''
-  
-  with open("full-report/index.html", "w") as f:
-      f.write(html)
+              <div class="toc">
+                  <h2>Table of Contents</h2>
+                  <ul class="file-list">
+          '''
+          
+          # List all files with links
+          for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
+              if os.path.isfile(filepath):
+                  rel_path = filepath.replace("full-report/", "")
+                  if rel_path != "index.html":
+                      html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
+          
+          html += '''      </ul>
+              </div>
+              
+              <h2>Security Summary</h2>
+              <p>This report contains the raw output from all security tools run in the pipeline.</p>
+              <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
+          </body>
+          </html>'''
+          
+          with open("full-report/index.html", "w") as f:
+              f.write(html)
 
-if __name__ == "__main__":
-  create_comprehensive_report()
-EOL
-        
-        # Run the script
-        python .github/scripts/generate_comprehensive_report.py
+        if __name__ == "__main__":
+          create_comprehensive_report()
+        EOL
+                
+                # Run the script
+                python .github/scripts/generate_comprehensive_report.py
     
     - name: Upload comprehensive report
       uses: actions/upload-artifact@v4

@@ -176,32 +176,32 @@ jobs:
                     # Run coverage
                     coverage run -m pytest tests/ app/ --cov=app --cov-report=xml:coverage.xml --cov-report=html:coverage_html || echo "Tests failed but continuing"
                 
-                - name: Generate coverage report
-                  run: |
-                    coverage report
-                    
-                    # Create a markdown report
-                    echo "# Code Coverage Report" > coverage-report.md
-                    echo "Generated on $(date)" >> coverage-report.md
-                    echo "" >> coverage-report.md
-                    echo "## Summary" >> coverage-report.md
-                    echo '```' >> coverage-report.md
-                    coverage report >> coverage-report.md
-                    echo '```' >> coverage-report.md
-                    
-                    echo "" >> coverage-report.md
-                    echo "## Details" >> coverage-report.md
-                    echo "See HTML report in artifacts for detailed coverage information." >> coverage-report.md
-                
-                - name: Upload coverage results
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: code-coverage-results
-                    path: |
-                      coverage.xml
-                      coverage_html/
-                      coverage-report.md
-                  if: always()
+      - name: Generate coverage report
+        run: |
+          coverage report
+          
+          # Create a markdown report
+          echo "# Code Coverage Report" > coverage-report.md
+          echo "Generated on $(date)" >> coverage-report.md
+          echo "" >> coverage-report.md
+          echo "## Summary" >> coverage-report.md
+          echo '```' >> coverage-report.md
+          coverage report >> coverage-report.md
+          echo '```' >> coverage-report.md
+          
+          echo "" >> coverage-report.md
+          echo "## Details" >> coverage-report.md
+          echo "See HTML report in artifacts for detailed coverage information." >> coverage-report.md
+      
+      - name: Upload coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-results
+          path: |
+            coverage.xml
+            coverage_html/
+            coverage-report.md
+        if: always()
 
   # TEST PHASE WITH UNIT TESTS
   unit-testing:
@@ -257,100 +257,100 @@ jobs:
                     sleep 5
                     # Verify it's running
                     curl http://localhost:8080/ || echo "App not started correctly"
-                
-                - name: ZAP Baseline Scan
-                  uses: zaproxy/action-baseline@v0.14.0
-                  with:
-                    target: 'http://localhost:8080'
-                    fail_action: false
-                    cmd_options: '-r zap-report.html'
-                  continue-on-error: true
-                
-                - name: Create ZAP Markdown Report
-                  run: |
-                    if [ -f zap-report.html ]; then
-                      echo "# ZAP Scan Results" > zap-report.md
-                      echo "Scan completed on $(date)" >> zap-report.md
-                      echo "## Summary" >> zap-report.md
-                      echo "ZAP baseline scan was performed against http://localhost:8080" >> zap-report.md
-                      # Extract alerts from HTML (basic approach)
-                      grep -A 3 "Alert" zap-report.html | sed 's/<[^>]*>//g' | grep -v "^$" >> zap-report.md || echo "No alerts found" >> zap-report.md
-                    else
-                      echo "# ZAP Scan Results" > zap-report.md
-                      echo "No scan results available" >> zap-report.md
-                    fi
-                  continue-on-error: true
-                
-                - name: Upload ZAP Scan Results
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: zap-scan-results
-                    path: |
-                      zap-report.html
-                      zap-report.md
-                  if: always()
+      
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: 'http://localhost:8080'
+          fail_action: false
+          cmd_options: '-r zap-report.html'
+        continue-on-error: true
+      
+      - name: Create ZAP Markdown Report
+        run: |
+          if [ -f zap-report.html ]; then
+            echo "# ZAP Scan Results" > zap-report.md
+            echo "Scan completed on $(date)" >> zap-report.md
+            echo "## Summary" >> zap-report.md
+            echo "ZAP baseline scan was performed against http://localhost:8080" >> zap-report.md
+            # Extract alerts from HTML (basic approach)
+            grep -A 3 "Alert" zap-report.html | sed 's/<[^>]*>//g' | grep -v "^$" >> zap-report.md || echo "No alerts found" >> zap-report.md
+          else
+            echo "# ZAP Scan Results" > zap-report.md
+            echo "No scan results available" >> zap-report.md
+          fi
+        continue-on-error: true
+      
+      - name: Upload ZAP Scan Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-scan-results
+          path: |
+            zap-report.html
+            zap-report.md
+        if: always()
 
-            # DEPLOY PHASE
-            secure-deploy:
-              runs-on: ubuntu-latest
-              needs: [unit-testing, dast-testing]
-              steps:
-                - name: Checkout code
-                  uses: actions/checkout@v4
-                
-                - name: Setup Terraform
-                  uses: hashicorp/setup-terraform@v2
-                  if: ${{ hashFiles('**/*.tf') != '' }}
-                
-                - name: Run tfsec (Terraform Security)
-                  uses: aquasecurity/tfsec-sarif-action@v0.1.4
-                  with:
-                    sarif_file: tfsec.sarif
-                  if: ${{ hashFiles('**/*.tf') != '' }}
-                  continue-on-error: true
-                
-                - name: Run Checkov (IaC security)
-                  uses: bridgecrewio/checkov-action@master
-                  with:
-                    directory: .
-                    soft_fail: true
-                    output_format: sarif
-                    output_file_path: checkov.sarif
-                  continue-on-error: true
-                
-                - name: Upload deploy security results
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: deploy-security-results
-                    path: |
-                      tfsec.sarif
-                      checkov.sarif
-                  if: always()
+  # DEPLOY PHASE
+  secure-deploy:
+    runs-on: ubuntu-latest
+    needs: [unit-testing, dast-testing]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        if: ${{ hashFiles('**/*.tf') != '' }}
+      
+      - name: Run tfsec (Terraform Security)
+        uses: aquasecurity/tfsec-sarif-action@v0.1.4
+        with:
+          sarif_file: tfsec.sarif
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        continue-on-error: true
+      
+      - name: Run Checkov (IaC security)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          soft_fail: true
+          output_format: sarif
+          output_file_path: checkov.sarif
+        continue-on-error: true
+      
+      - name: Upload deploy security results
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-security-results
+          path: |
+            tfsec.sarif
+            checkov.sarif
+        if: always()
 
-            # GENERATE ENHANCED DETAILED REPORT
-            security-report:
-              runs-on: ubuntu-latest
-              needs: [secure-code, semgrep-sast, secure-build, code-coverage, unit-testing, dast-testing, secure-deploy]
-              steps:
-                - name: Checkout code
-                  uses: actions/checkout@v4
-                  
-                - name: Download all artifacts
-                  uses: actions/download-artifact@v4
-                  continue-on-error: true
-                
-                - name: Set up Python for report processing
-                  uses: actions/setup-python@v4
-                  with:
-                    python-version: '3.10'
-                
-                - name: Create report scripts directory
-                  run: mkdir -p .github/scripts
-                
-                # Create Python script for report generation
-                - name: Create report generation script
-                  run: |
-                    cat > .github/scripts/generate_report.py << 'EOL'
+  # GENERATE ENHANCED DETAILED REPORT
+  security-report:
+    runs-on: ubuntu-latest
+    needs: [secure-code, semgrep-sast, secure-build, code-coverage, unit-testing, dast-testing, secure-deploy]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+      
+      - name: Set up Python for report processing
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Create report scripts directory
+        run: mkdir -p .github/scripts
+      
+      # Create Python script for report generation
+      - name: Create report generation script
+        run: |
+          cat > .github/scripts/generate_report.py << 'EOL'
           import json
           import os
           import sys
@@ -732,108 +732,108 @@ jobs:
                       combined-report.md
                       detailed-report.html
 
-# Generate comprehensive report with all findings
-comprehensive-report:
-  runs-on: ubuntu-latest
-  needs: [security-report]
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        pattern: "*"
-      continue-on-error: true
-    
-    - name: Set up Python for report processing
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Run comprehensive report generation script
-      run: |
-        # Create scripts directory if it doesn't exist
-        mkdir -p .github/scripts
-        
-        # Create the script
-        cat > .github/scripts/generate_comprehensive_report.py << 'EOL'
-        import os
-        import glob
-        import shutil
-        from datetime import datetime
+  # Generate comprehensive report with all findings
+  comprehensive-report:
+    runs-on: ubuntu-latest
+    needs: [security-report]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+        continue-on-error: true
+      
+      - name: Set up Python for report processing
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run comprehensive report generation script
+        run: |
+          # Create scripts directory if it doesn't exist
+          mkdir -p .github/scripts
+          
+          # Create the script
+          cat > .github/scripts/generate_comprehensive_report.py << 'EOL'
+          import os
+          import glob
+          import shutil
+          from datetime import datetime
 
-        def create_comprehensive_report():
-          # Create full report directory
-          os.makedirs("full-report", exist_ok=True)
-          
-          # Copy all files to full-report directory
-          for filepath in glob.glob("**/*", recursive=True):
-              if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
-                  try:
-                      # Create directory structure if needed
-                      dest_dir = os.path.dirname(os.path.join("full-report", filepath))
-                      if dest_dir:
-                          os.makedirs(dest_dir, exist_ok=True)
-                      
-                      # Copy file
-                      shutil.copy2(filepath, os.path.join("full-report", filepath))
-                  except Exception as e:
-                      print(f"Error copying {filepath}: {e}")
-          
-          # Create index.html
-          html = f'''<!DOCTYPE html>
-          <html>
-          <head>
-              <meta charset="UTF-8">
-              <title>DevSecOps Comprehensive Report</title>
-              <style>
-                  body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
-                  .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
-                  h1 {{ color: #333; }}
-                  .file-list {{ list-style-type: none; padding: 0; }}
-                  .file-list li {{ margin: 10px 0; }}
-                  .file-list a {{ text-decoration: none; color: #0366d6; }}
-                  .file-list a:hover {{ text-decoration: underline; }}
-              </style>
-          </head>
-          <body>
-              <h1>DevSecOps Comprehensive Security Report</h1>
-              <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-              
-              <div class="toc">
-                  <h2>Table of Contents</h2>
-                  <ul class="file-list">
-          '''
-          
-          # List all files with links
-          for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
-              if os.path.isfile(filepath):
-                  rel_path = filepath.replace("full-report/", "")
-                  if rel_path != "index.html":
-                      html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
-          
-          html += '''      </ul>
-              </div>
-              
-              <h2>Security Summary</h2>
-              <p>This report contains the raw output from all security tools run in the pipeline.</p>
-              <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
-          </body>
-          </html>'''
-          
-          with open("full-report/index.html", "w") as f:
-              f.write(html)
-
-        if __name__ == "__main__":
-          create_comprehensive_report()
-        EOL
+          def create_comprehensive_report():
+            # Create full report directory
+            os.makedirs("full-report", exist_ok=True)
+            
+            # Copy all files to full-report directory
+            for filepath in glob.glob("**/*", recursive=True):
+                if os.path.isfile(filepath) and not filepath.startswith("full-report/"):
+                    try:
+                        # Create directory structure if needed
+                        dest_dir = os.path.dirname(os.path.join("full-report", filepath))
+                        if dest_dir:
+                            os.makedirs(dest_dir, exist_ok=True)
+                        
+                        # Copy file
+                        shutil.copy2(filepath, os.path.join("full-report", filepath))
+                    except Exception as e:
+                        print(f"Error copying {filepath}: {e}")
+            
+            # Create index.html
+            html = f'''<!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>DevSecOps Comprehensive Report</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+                    .toc {{ background: #f8f8f8; padding: 20px; margin-bottom: 20px; }}
+                    h1 {{ color: #333; }}
+                    .file-list {{ list-style-type: none; padding: 0; }}
+                    .file-list li {{ margin: 10px 0; }}
+                    .file-list a {{ text-decoration: none; color: #0366d6; }}
+                    .file-list a:hover {{ text-decoration: underline; }}
+                </style>
+            </head>
+            <body>
+                <h1>DevSecOps Comprehensive Security Report</h1>
+                <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                 
-                # Run the script
-                python .github/scripts/generate_comprehensive_report.py
+                <div class="toc">
+                    <h2>Table of Contents</h2>
+                    <ul class="file-list">
+            '''
+            
+            # List all files with links
+            for filepath in sorted(glob.glob("full-report/**/*", recursive=True)):
+                if os.path.isfile(filepath):
+                    rel_path = filepath.replace("full-report/", "")
+                    if rel_path != "index.html":
+                        html += f'<li><a href="{rel_path}">{rel_path}</a></li>\n'
+            
+            html += '''      </ul>
+                </div>
+                
+                <h2>Security Summary</h2>
+                <p>This report contains the raw output from all security tools run in the pipeline.</p>
+                <p>For a more readable summary, see the <a href="detailed-report.html">detailed report</a>.</p>
+            </body>
+            </html>'''
+            
+            with open("full-report/index.html", "w") as f:
+                f.write(html)
+
+          if __name__ == "__main__":
+            create_comprehensive_report()
+          EOL
+                  
+                  # Run the script
+                  python .github/scripts/generate_comprehensive_report.py
     
-    - name: Upload comprehensive report
-      uses: actions/upload-artifact@v4
-      with:
-        name: comprehensive-report
-        path: full-report/
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-report
+          path: full-report/

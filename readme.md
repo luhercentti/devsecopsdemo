@@ -18,15 +18,15 @@ Example of a DEVSECOPS with open source tools
 
 Some tools overlap in this example, therefore we can just simplify to use only these:
 
-| Categoría        | Opción recomendada               |
-| ---------------- | -------------------------------- |
+| Categoría        | Opción recomendada                |
+| ---------------- | --------------------------------- |
 | SAST             | Only **Semgrep** or **SonarQube** |
-| Secrets scanning | Keep **Gitleaks**                |
-| Docker Scanning  | Keep **Trivy**                   |
-| IaC              | Keep **Checkov** (more complete) |
-| Testing          | Keep **pytest**                  |
-| DAST             | Keep **ZAP**                     |
-| Report           | Combined Report in Markdown      |
+| Secrets scanning | Keep **Gitleaks**                 |
+| Docker Scanning  | Keep **Trivy**                    |
+| IaC              | Keep **Checkov** (more complete)  |
+| Testing          | Keep **pytest**                   |
+| DAST             | Keep **ZAP**                      |
+| Report           | Combined Report in Markdown       |
 
 
 These We can leave behind:

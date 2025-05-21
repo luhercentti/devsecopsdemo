@@ -1,5 +1,7 @@
 Example of a DEVSECOPS with open source tools
 
+Using pre-deployment or build-time security checks, OWASP ZAP being post deployment.
+
 - Tools used:
 
 | Tool                   | Purpose in the Pipeline                               | Type of Analysis | Language/Scope                    |
@@ -93,6 +95,7 @@ OWASP Top 10
 
 
 🟡 Summary: Strengths & Gaps
+
 | Category          | Status     | Notes                                                              |
 | ----------------- | ---------- | ------------------------------------------------------------------ |
 | SAST              | ✅ Strong   | Semgrep covers OWASP and general secure coding                     |
@@ -105,3 +108,8 @@ OWASP Top 10
 | Reporting         | ✅ Strong   | combined-report.md is practical for visibility                     |
 | Runtime Detection | ⚠️ Missing | Add tools like Falco or OSQuery for runtime/host-based security    |
 | Compliance Trace  | ⚠️ Medium  | Could be enhanced with approval gates, logging, policy enforcement |
+
+Recomendations:
+I can add runtime security checks with tools such Falco(deployed into your kubernetes), Wazuh(install on hosts), or similar, this will be to detect suspicious behavior. 
+Also we can configure Falco for example to grab its metrics and be read by prometheus.
+Wazuh can be configured to send logs collections to tools such as the ELK stack.

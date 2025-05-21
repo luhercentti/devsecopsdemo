@@ -1,6 +1,7 @@
 Example of a DEVSECOPS with open source tools
 
 - Tools used:
+
 | Tool                   | Purpose in the Pipeline                               | Type of Analysis | Language/Scope                    |
 | ---------------------- | ----------------------------------------------------- | ---------------- | --------------------------------- |
 | **Bandit**             | Scan Python code for known insecure patterns          | SAST             | Python-only                       |

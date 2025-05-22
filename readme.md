@@ -1,3 +1,5 @@
+<h2><strong>Luis Angelo Hernandez Centti</strong></h2>
+
 Example of a DEVSECOPS with open source tools
 
 Using pre-deployment or build-time security checks, OWASP ZAP being post deployment.
